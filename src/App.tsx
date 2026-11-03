@@ -218,7 +218,10 @@ function App() {
             </Group>
           </Alert>
         )}
-        {tab === 'outlook' && <OutlookView plan={plan} today={planState.today} />}
+        {tab === 'outlook' && (
+          // While an option is previewed the outlook shows its plan, so nothing is added from it.
+          <OutlookView plan={plan} today={planState.today} onAdopt={preview ? undefined : app.adopt} />
+        )}
         {tab === 'progress' && (
           <ProgressView plan={plan} today={planState.today} warningDays={saved.settings.stagnationWarningDays} />
         )}

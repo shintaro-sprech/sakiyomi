@@ -1,17 +1,21 @@
-import { Badge, Group, Paper, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core'
-import { IconUser, IconUserFilled } from '@tabler/icons-react'
-import { useMemo } from 'react'
+import { Badge, Button, Group, Paper, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core'
+import { IconCheck, IconUser, IconUserFilled } from '@tabler/icons-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { dailyUsage, orderDemands, type PriorityClass } from '../engine/demand'
+import { dailyUsage, orderDemands, replenishments, type PriorityClass, type Replenishment } from '../engine/demand'
 import { monthlyOutlook } from '../engine/economics'
 import type { Plan } from '../engine/plan'
+import { describeChange, type Change } from '../engine/scenario'
 import type { CrewDay } from '../engine/scheduler'
 import type { IsoDate } from '../engine/types'
+import type { Decision } from '../state/store'
 import { formatYen, shortDate, shortDateTime, weekdayName } from './format'
 
 type Props = {
   plan: Plan
   today: IsoDate
+  // Absent while an option is previewed.
+  onAdopt?: (decision: Omit<Decision, 'id' | 'at'>) => void
 }
 
 const CLASS_LABELS: Record<PriorityClass, string> = { A: 'A 今月', B: 'B 来月', C: 'C 以降' }
@@ -27,10 +31,30 @@ export function ClassBadge({ value }: { value: PriorityClass }) {
   )
 }
 
-export function OutlookView({ plan, today }: Props) {
+export function OutlookView({ plan, today, onAdopt }: Props) {
   const outlook = useMemo(() => monthlyOutlook(plan, today), [plan, today])
   const { data, settings } = plan.scenario
   const demands = useMemo(() => orderDemands(data, today), [data, today])
+  // The plan's own data, so a shortfall already added as an order is gone.
+  const toRelease = useMemo(() => new Map(replenishments(data, today).map((item) => [item.partNumber, item])), [data, today])
+  // The part just added keeps keyboard focus where its button was (WCAG 2.4.3).
+  const [added, setAdded] = useState<string | null>(null)
+  const addedRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (added) addedRef.current?.focus()
+  }, [added])
+  const add = (item: Replenishment) => {
+    const change: Change = { kind: 'addOrder', partNumber: item.partNumber, quantity: item.quantity, due: item.needBy }
+    onAdopt?.({
+      title: `${item.partNumber}の足りない分を追加`,
+      changes: [change],
+      labels: [describeChange(change, data)],
+      reason: `来月末までの出荷に、在庫と注残では${item.quantity}個足りない`,
+      tradeoff: '作る分の材料費・労務費・設備の運転費がかかり、同じ設備を使う注番が後ろにずれることがある',
+      note: '',
+    })
+    setAdded(item.partNumber)
+  }
   const forecasts = new Map(plan.result.orders.map((forecast) => [forecast.orderId, forecast]))
   const orders = new Map(data.orders.map((order) => [order.id, order]))
   const rows = [...demands].sort(
@@ -188,23 +212,28 @@ export function OutlookView({ plan, today }: Props) {
           在庫の見通し
         </Title>
         <Paper withBorder>
-          <Table.ScrollContainer minWidth={640}>
+          <Table.ScrollContainer minWidth={820}>
             <Table verticalSpacing={6} horizontalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>型番</Table.Th>
+                  <Table.Th className="sticky-col">型番</Table.Th>
                   <Table.Th>形状</Table.Th>
                   <Table.Th ta="right">在庫</Table.Th>
                   <Table.Th ta="right">1日の出荷</Table.Th>
-                  <Table.Th>欠品の見込み</Table.Th>
+                  <Table.Th w={220}>欠品の見込み</Table.Th>
+                  {/* Narrow on a phone, where the button goes under the count beside the fixed part column. */}
+                  <Table.Th w={{ base: 150, sm: 280 }}>足りない分</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
                 {data.parts.map((part) => {
                   const shortages = outlook.shortages.filter((shortage) => shortage.partNumber === part.partNumber)
+                  const shortfall = toRelease.get(part.partNumber)
                   return (
                     <Table.Tr key={part.partNumber}>
-                      <Table.Td>{part.partNumber}</Table.Td>
+                      <Table.Th scope="row" className="sticky-col" fw={400}>
+                        {part.partNumber}
+                      </Table.Th>
                       <Table.Td>{part.shape}</Table.Td>
                       <Table.Td ta="right" className="tabular">
                         {part.stock}
@@ -223,6 +252,35 @@ export function OutlookView({ plan, today }: Props) {
                               {shortDate(shortage.from)}〜{shortage.until ? shortDate(shortage.until) : ''}（最大{shortage.maxShortage}個）
                             </Text>
                           ))
+                        )}
+                      </Table.Td>
+                      <Table.Td>
+                        {shortfall ? (
+                          <Group gap={6}>
+                            <Text size="sm" className="tabular" style={{ whiteSpace: 'nowrap' }}>
+                              {shortfall.quantity}個　{shortDate(shortfall.needBy)}までに
+                            </Text>
+                            {onAdopt && (
+                              <Button
+                                size="xs"
+                                variant="default"
+                                onClick={() => add(shortfall)}
+                                aria-label={`${part.partNumber}の足りない分${shortfall.quantity}個を計画に反映する`}
+                              >
+                                計画に反映する
+                              </Button>
+                            )}
+                          </Group>
+                        ) : added === part.partNumber ? (
+                          <div ref={addedRef} tabIndex={-1} style={{ width: 'fit-content' }}>
+                            <Badge color="teal" variant="outline" size="lg" radius="sm" leftSection={<IconCheck size={14} />}>
+                              反映済み
+                            </Badge>
+                          </div>
+                        ) : (
+                          <Text size="sm" c="dimmed">
+                            —
+                          </Text>
                         )}
                       </Table.Td>
                     </Table.Tr>

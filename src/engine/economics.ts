@@ -151,7 +151,8 @@ function projectShortages(plan: Plan, today: IsoDate, completions: ReturnType<ty
     let current: Shortage | null = null
     for (let day = 0; day <= lastDay; day += 1) {
       stock += (arrivals.get(day) ?? 0) - perDay
-      if (stock < 0) {
+      // A hair under zero, so a stock that exactly lasts is not short by rounding.
+      if (stock < -1e-9) {
         current ??= { partNumber: part.partNumber, from: addDays(today, day), until: null, maxShortage: 0 }
         current.maxShortage = Math.max(current.maxShortage, Math.ceil(-stock))
       } else if (current) {

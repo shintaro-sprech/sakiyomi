@@ -1,9 +1,10 @@
 import { compareSchedules, type ScheduleComparison } from '../engine/compare'
-import { orderDemands } from '../engine/demand'
+import { orderDemands, replenishments } from '../engine/demand'
 import { monthlyOutlook, unusedChanges, type MonthlyOutlook } from '../engine/economics'
 import { runPlan, type PlanState } from '../engine/plan'
 import { summarizeProgress } from '../engine/progress'
 import { ChangeError, describeChange, parseChange, sameChange, type Change } from '../engine/scenario'
+import type { IsoDate, PlantData } from '../engine/types'
 import { TOOL_NAMES } from './toolSchemas'
 
 // The effect of a set of changes on the current plan, computed by the engine.
@@ -131,7 +132,7 @@ export function describeSituation(state: PlanState) {
     overtimePremium: settings.overtimePremium,
     holidayPremium: settings.holidayPremium,
     adoptedChanges: state.adopted.map((change) => describeChange(change, data)),
-    thisMonth: summarizeOutlook(monthlyOutlook(plan, state.today)),
+    thisMonth: summarizeOutlook(monthlyOutlook(plan, state.today), data, state.today),
     parts: data.parts,
     setupRules: data.setupRules,
     crews: data.crews.map((crew) => ({
@@ -188,7 +189,7 @@ export function describeSituation(state: PlanState) {
   }
 }
 
-function summarizeOutlook(outlook: MonthlyOutlook) {
+function summarizeOutlook(outlook: MonthlyOutlook, data: PlantData, today: IsoDate) {
   return {
     month: outlook.month,
     revenue: outlook.revenue,
@@ -201,6 +202,7 @@ function summarizeOutlook(outlook: MonthlyOutlook) {
     setupHours: outlook.setupHours,
     lateOrders: outlook.lateOrders,
     shortagesUntilEndOfNextMonth: outlook.shortages,
+    replenishments: replenishments(data, today),
     ordersByClass: outlook.classCounts,
   }
 }
@@ -258,7 +260,7 @@ function simulate(state: PlanState, changes: Change[]) {
     overtimeHoursDelta: effect.overtimeHoursDelta,
     holidayHoursDelta: effect.holidayHoursDelta,
     unusedChanges: effect.unusedChanges.map((change) => describeChange(change, data)),
-    thisMonthAfter: summarizeOutlook(effect.outlook),
+    thisMonthAfter: summarizeOutlook(effect.outlook, data, state.today),
   }
 }
 

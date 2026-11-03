@@ -1,4 +1,4 @@
-import { addDays } from './dates'
+import { addDays, daysBetween } from './dates'
 import type { IsoDate, Lot, Order, Part, PlantData } from './types'
 
 // A: needed by the end of this month (due, or stock runs out). B: needed next month. C: later.
@@ -62,6 +62,35 @@ export function orderDemands(data: PlantData, today: IsoDate): OrderDemand[] {
   }
 
   return demands.sort((a, b) => a.orderId.localeCompare(b.orderId))
+}
+
+// What a part lacks to ship through the end of next month once its stock and every
+// open order are counted, and the day those run out. It comes from the quantities
+// alone, not from when the plan finishes them: a late order is a matter of time.
+export type Replenishment = {
+  partNumber: string
+  quantity: number
+  needBy: IsoDate
+}
+
+export function replenishments(data: PlantData, today: IsoDate): Replenishment[] {
+  const days = daysBetween(today, lastDayOfNextMonth(today)) + 1
+  return data.parts.flatMap((part) => {
+    const perDay = dailyUsage(part)
+    // A part with no route cannot be made, so there is nothing to add for it.
+    if (perDay <= 0 || !data.routes[part.partNumber]) return []
+    const routeLength = data.routes[part.partNumber].length
+    const coverage =
+      part.stock +
+      data.orders
+        .filter((order) => order.partNumber === part.partNumber)
+        .reduce((total, order) => total + remainingQuantity(order, data.lots, routeLength), 0)
+    // A hair under, so a shortfall that is a whole number in exact arithmetic stays one.
+    const quantity = Math.ceil(perDay * days - coverage - 1e-9)
+    if (quantity <= 0) return []
+    const runsOut = stockoutDate(coverage, part, today) ?? today
+    return [{ partNumber: part.partNumber, quantity, needBy: runsOut < today ? today : runsOut }]
+  })
 }
 
 // Pieces of the order not yet finished (finished lots are already counted in stock).
