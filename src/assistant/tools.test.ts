@@ -81,6 +81,28 @@ describe('executeTool', () => {
     expect(result.shifted.length).toBeGreaterThan(0)
   })
 
+  it("lets an option's headcount override the event's on the same days", () => {
+    const outcome = executeTool(
+      TOOL_NAMES.presentOptions,
+      {
+        event: [{ kind: 'headcount', crew: '機械班', from: '2026-11-04', to: '2026-11-06', people: 0 }],
+        options: [
+          {
+            title: '応援を取りやめる',
+            changes: [{ kind: 'headcount', crew: '機械班', from: '2026-11-04', to: '2026-11-06', people: 2 }],
+            reason: 'r',
+            tradeoff: 't',
+          },
+        ],
+      },
+      state,
+    )
+    const result = JSON.parse(outcome.content)
+
+    expect(result.ifNothingIsDone.newlyLate).toEqual(['1045'])
+    expect(result.options[0].newlyLate).toEqual([])
+  })
+
   it('tells Claude how many people each crew has', () => {
     const crew = describeSituation(state).crews.find((item) => item.name === '機械班')
 

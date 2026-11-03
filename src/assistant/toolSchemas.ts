@@ -15,13 +15,13 @@ const changeSchema = {
     'materialDelay: orderId, days（未投入分の材料の入荷が何日遅れるか。早まるならマイナス）',
     'quantity: orderId, quantity（新しい総数量。投入済みの数より少なくはできない）',
     'equipmentDown: equipmentId, from, to（その期間、設備を使わない）',
-    'overtime: equipmentId, from, to, minutesPerDay（その期間の稼働日に、終業を何分延ばすか）',
-    'holidayWork: equipmentId, date（休日に通常の時間で動かす）',
+    'overtime: equipmentId, from, to, minutesPerDay（その期間の稼働日に、終業を何分延ばすか。残業の時間は、延ばした枠のうち実際に動いた分だけ数える。延ばした時間も、その日に班に出ている人数の中で動く）',
+    'holidayWork: equipmentId, date（休日に通常の時間で動かす。班の人数とは別に、その設備に1人が出る。休日出勤の時間は、実際に動いた分だけ数える）',
     'expedite: orderId（その注番を最優先で流す）',
     'hold: orderId, until（その日まで着手しない。余力の注番を来月に回すときなど）',
     'addOrder: partNumber, quantity, due（製造注残を追加する。在庫切れを防ぐ補充など）',
-    'headcount: crew, from, to, people（その期間の稼働日に、班に出ている人数。応援なら増やし、休みなら減らす）',
-    '日付は YYYY-MM-DD。設備は equipmentId（例: MC-1）で指定する。',
+    'headcount: crew, from, to, people（その期間の稼働日に、班に出る人数そのもの。休む人数や増減ではない。日ごとの予定の人数は get_situation の班の days にある。予定が日によって違うときは、期間を分けて日ごとの人数を書く。同じ日に重なる headcount は、後に当てたものが使われる）',
+    '日付は YYYY-MM-DD。期間の from と to は、どちらもその日を含む。設備は equipmentId（例: MC-1）で指定する。',
   ].join('\n'),
   properties: {
     kind: {
@@ -85,13 +85,13 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: TOOL_NAMES.presentOptions,
     description:
-      '担当者に選んでもらう対策の案を画面にカードで出す。担当者から聞いた出来事（材料の遅れ、設備の故障など）は event に、対策は案ごとの changes に分けて書く。案ごとに、その手が効く理由と、その代わりに起きること（残業時間や後ろにずれる注番など）を書く。各案の効果は画面側で、出来事も当てたうえで計算し直して表示し、その結果を返す。',
+      '担当者に選んでもらう対策の案を画面にカードで出す。担当者から聞いた出来事（材料の遅れ、設備の故障など）と、担当者がやろうとしていること（応援に人を出すなど）は event に、あなたの対策は案ごとの changes に分けて書く。案ごとに、その手が効く理由と、その代わりに起きること（残業時間や後ろにずれる注番など）を書く。各案の効果は画面側で、event のあとに案の changes を当てて計算し直して表示し、その結果を返す。ifNothingIsDone は event だけを当てた結果。',
     input_schema: {
       type: 'object',
       properties: {
         event: {
           type: 'array',
-          description: '担当者から聞いた出来事。対策ではなく事実だけ。出来事がなければ空の配列',
+          description: '担当者から聞いた出来事と、担当者がやろうとしていること。あなたの対策は入れない。なければ空の配列',
           items: changeSchema,
         },
         options: {
@@ -102,7 +102,7 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
             type: 'object',
             properties: {
               title: { type: 'string', description: '案の短い名前' },
-              changes: { type: 'array', items: changeSchema, description: '対策だけ。出来事は event に書く' },
+              changes: { type: 'array', items: changeSchema, description: '対策だけ。event に書いたものは繰り返さない。event の一部を変える案（応援の日をずらすなど）は、変える日の変更だけをここに書く' },
               reason: { type: 'string', description: 'この手が効く理由' },
               tradeoff: { type: 'string', description: 'その代わりに起きること' },
             },

@@ -270,7 +270,7 @@ function EventSummary({ event }: { event: ReportedEvent }) {
           {event.labels.join('、')}
         </Text>
         <Text size="xs" c="dimmed">
-          何もしないと
+          対策をしないと
         </Text>
         <EffectSummary effect={event.effect} />
       </Stack>
