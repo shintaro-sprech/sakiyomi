@@ -71,7 +71,7 @@ export function OutlookView({ plan, today }: Props) {
           <Text c="dimmed" aria-hidden="true">
             −
           </Text>
-          <Figure label="設備費" value={formatYen(outlook.machineCost)} />
+          <Figure label="設備の運転費" value={formatYen(outlook.machineCost)} />
         </Group>
       </Paper>
 

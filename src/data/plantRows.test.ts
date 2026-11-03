@@ -22,6 +22,18 @@ describe('plant rows', () => {
     expect(data?.orders[1].due).toBe('2026-11-21')
   })
 
+  it('reads the running cost from a workbook with the earlier column name', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    rows[SHEETS.equipment] = rows[SHEETS.equipment].map(({ [COLUMNS.equipment.hourlyCost]: cost, ...row }) => ({
+      ...row,
+      '1時間の費用': cost,
+    }))
+    const { data, errors } = parsePlantRows(rows)
+
+    expect(errors).toEqual([])
+    expect(data?.equipment.find((item) => item.id === 'MC-1')?.hourlyCost).toBe(1200)
+  })
+
   it('plans without people limits when the workbook has no crews', () => {
     const rows = toPlantRows(createSampleData('2026-11-03'))
     delete rows[SHEETS.crews]

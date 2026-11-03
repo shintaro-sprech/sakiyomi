@@ -16,7 +16,8 @@ export type Equipment = {
   process: string
   // Used when the part number changes and no setup rule covers the two shapes.
   setupMinutes: number
-  // Running cost per working hour, in yen.
+  // Running cost per working hour, in yen: what running the machine uses up, such as
+  // power and tools. Depreciation is not in it, as fixed costs are not allocated.
   hourlyCost: number
 }
 

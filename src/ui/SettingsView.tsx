@@ -323,7 +323,7 @@ export function SettingsView({ app }: { app: AppState }) {
                   <Table.Th>設備</Table.Th>
                   <Table.Th>担当工程</Table.Th>
                   <Table.Th w={130}>段取り</Table.Th>
-                  <Table.Th w={130}>1時間の費用</Table.Th>
+                  <Table.Th w={130}>1時間の運転費</Table.Th>
                   <Table.Th w={80}>止める</Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -353,7 +353,7 @@ export function SettingsView({ app }: { app: AppState }) {
                         step={100}
                         value={equipment.hourlyCost}
                         onCommit={(value) => setEquipmentNumber(equipment.id, 'hourlyCost', value)}
-                        aria-label={`${equipment.name}の1時間の費用`}
+                        aria-label={`${equipment.name}の1時間の運転費`}
                       />
                     </Table.Td>
                     <Table.Td>
