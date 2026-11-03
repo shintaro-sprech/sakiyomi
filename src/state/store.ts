@@ -19,6 +19,8 @@ export type Decision = {
   tradeoff: string
   // What the planner wrote about why they chose it.
   note: string
+  // The option card it came from, so the card shows whether it is still in the plan.
+  sourceKey?: string
 }
 
 export type SavedState = {

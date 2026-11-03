@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react'
+import { Badge, CloseButton, Group, Paper, SegmentedControl, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core'
+import { useReducedMotion } from '@mantine/hooks'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { Plan } from '../engine/plan'
 import { stagnantDays, summarizeProgress, type ProgressSummary } from '../engine/progress'
@@ -60,10 +62,10 @@ export function ProgressView({ plan, today, warningDays }: Props) {
   const lateCount = plan.result.orders.filter((forecast) => forecast.late).length
 
   return (
-    <section className="progress">
-      <div className="metrics">
+    <Stack gap="md">
+      <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
         <Metric label="注残" value={`${data.orders.length}件`} />
-        <Metric label="納期に遅れる見込み" value={`${lateCount}件`} tone={lateCount > 0 ? 'danger' : 'ok'} />
+        <Metric label="納期に遅れる見込み" value={`${lateCount}件`} tone={lateCount > 0 ? 'red' : 'teal'} />
         <Metric
           label="仕掛"
           value={`${allWip.reduce((total, lot) => total + lot.quantity, 0)}個 / ${allWip.length}Lot`}
@@ -71,23 +73,22 @@ export function ProgressView({ plan, today, warningDays }: Props) {
         <Metric
           label={`${warningDays}日以上止まっているLot`}
           value={`${allWip.filter(isWarned).length}Lot`}
-          tone={allWip.some(isWarned) ? 'warn' : undefined}
+          tone={allWip.some(isWarned) ? 'orange' : undefined}
         />
-      </div>
+      </SimpleGrid>
 
-      <div className="toolbar">
-        <div className="segmented" role="tablist" aria-label="表示の単位">
-          <button role="tab" aria-selected={mode === 'order'} onClick={() => switchMode('order')}>
-            注残ごと
-          </button>
-          <button role="tab" aria-selected={mode === 'part'} onClick={() => switchMode('part')}>
-            型番ごと
-          </button>
-        </div>
-        <p className="hint">工程全体か工程のマスを押すと、仕掛Lotの一覧が開きます</p>
-      </div>
+      <SegmentedControl
+        w="fit-content"
+        value={mode}
+        onChange={(value) => switchMode(value as 'order' | 'part')}
+        data={[
+          { value: 'order', label: '注残ごと' },
+          { value: 'part', label: '型番ごと' },
+        ]}
+        aria-label="表示の単位"
+      />
 
-      <div className="table-wrap">
+      <Paper withBorder className="table-wrap">
         <table className="progress-table">
           <thead>
             <tr>
@@ -133,7 +134,11 @@ export function ProgressView({ plan, today, warningDays }: Props) {
                 )}
                 <td className={row.forecast.late ? 'late' : undefined}>
                   {row.forecast.finish ? shortDateTime(row.forecast.finish) : '完了'}
-                  {row.forecast.lateCount > 0 && <span className="tag tag-danger">遅れ{row.forecast.lateCount}</span>}
+                  {row.forecast.lateCount > 0 && (
+                    <Badge color="red" variant="light" size="sm" ml={6}>
+                      遅れ{row.forecast.lateCount}
+                    </Badge>
+                  )}
                 </td>
                 <td className="col-overall">
                   <OverallCell
@@ -158,7 +163,7 @@ export function ProgressView({ plan, today, warningDays }: Props) {
             ))}
           </tbody>
         </table>
-      </div>
+      </Paper>
 
       {selectedRow && selection && (
         <LotPanel
@@ -170,7 +175,7 @@ export function ProgressView({ plan, today, warningDays }: Props) {
           onClose={() => setSelection(null)}
         />
       )}
-    </section>
+    </Stack>
   )
 
   function switchMode(next: 'order' | 'part') {
@@ -201,17 +206,26 @@ function buildRow(
   }
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: 'ok' | 'warn' | 'danger' }) {
+function Metric({ label, value, tone }: { label: string; value: string; tone?: 'red' | 'teal' | 'orange' }) {
   return (
-    <div className={`metric${tone ? ` metric-${tone}` : ''}`}>
-      <span className="metric-label">{label}</span>
-      <span className="metric-value">{value}</span>
-    </div>
+    <Paper withBorder p="sm">
+      <Text size="xs" c="dimmed" className="phrase">
+        {label}
+      </Text>
+      <Text fz={22} fw={700} c={tone} className="tabular" style={{ whiteSpace: 'nowrap' }}>
+        {value}
+      </Text>
+    </Paper>
   )
 }
 
 function OverallCell({ summary, warned, onOpen }: { summary: ProgressSummary; warned: boolean; onOpen: () => void }) {
-  const share = (value: number) => `${summary.quantity === 0 ? 0 : (value / summary.quantity) * 100}%`
+  // Only non-empty parts are drawn, so the 2px gaps separate real segments.
+  const segments = [
+    { className: 'seg-unstarted', value: summary.unstarted },
+    { className: 'seg-wip', value: summary.wip },
+    { className: 'seg-done', value: summary.finished },
+  ].filter((segment) => segment.value > 0)
   const extra = [
     summary.unstarted > 0 ? `未着手${summary.unstarted}` : '',
     summary.finished > 0 ? `完成${summary.finished}` : '',
@@ -225,12 +239,12 @@ function OverallCell({ summary, warned, onOpen }: { summary: ProgressSummary; wa
         {warned && <WarnIcon />}
       </span>
       <span className="segbar" aria-hidden="true">
-        <span className="seg-unstarted" style={{ width: share(summary.unstarted) }} />
-        <span className="seg-wip" style={{ width: share(summary.wip) }} />
-        <span className="seg-done" style={{ width: share(summary.finished) }} />
+        {segments.map((segment) => (
+          <span key={segment.className} className={segment.className} style={{ flex: `${segment.value} 1 0` }} />
+        ))}
       </span>
       <span className="overall-wip">{summary.wip > 0 ? `仕掛${summary.wip}個/${summary.wipLots.length}Lot` : '仕掛なし'}</span>
-      {extra && <span className="overall-extra">{extra}</span>}
+      <span className="overall-extra">{extra || '\u00a0'}</span>
     </button>
   )
 }
@@ -322,57 +336,74 @@ function LotPanel({
   const title =
     step === null ? `${row.label} の仕掛Lot一覧（全工程）` : `${row.label}・工程${step + 1} ${row.route[step]} の仕掛Lot一覧`
 
+  const panelRef = useRef<HTMLDivElement>(null)
+  const reduceMotion = useReducedMotion()
+  // The panel opens below the table, often under the fold.
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
+  }, [row.key, step, reduceMotion])
+
   return (
-    <section className="lot-panel" aria-label={title}>
-      <header>
-        <h3>{title}</h3>
-        <span className="hint">
-          {lots.reduce((total, lot) => total + lot.quantity, 0)}個 / {lots.length}Lot
-        </span>
-        <button className="ghost" onClick={onClose} aria-label="閉じる">
-          ×
-        </button>
-      </header>
+    <Paper withBorder p="md" aria-label={title} ref={panelRef}>
+      <Group justify="space-between" mb="xs" wrap="nowrap">
+        <Group gap="sm">
+          <Title order={3} size="h5">
+            {title}
+          </Title>
+          <Text size="sm" c="dimmed">
+            {lots.reduce((total, lot) => total + lot.quantity, 0)}個 / {lots.length}Lot
+          </Text>
+        </Group>
+        <CloseButton onClick={onClose} aria-label="閉じる" />
+      </Group>
       {lots.length === 0 ? (
-        <p className="hint">この工程に仕掛Lotはありません</p>
+        <Text size="sm" c="dimmed">
+          仕掛Lotはありません
+        </Text>
       ) : (
-        <table className="lot-table">
-          <thead>
-            <tr>
-              <th>Lot</th>
-              <th>注番</th>
-              <th>工程</th>
-              <th className="num">数量</th>
-              <th className="num">滞留</th>
-              <th>納期</th>
-              <th>この工程の加工予定</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lots.map((lot) => {
-              const days = stagnantDays(lot, today)
-              const operation = nextOperation(lot)
-              return (
-                <tr key={lot.id}>
-                  <td>{lot.id}</td>
-                  <td>{lot.orderId}</td>
-                  <td>
-                    工程{lot.stepIndex + 1} {row.route[lot.stepIndex]}
-                  </td>
-                  <td className="num">{lot.quantity}個</td>
-                  <td className={`num${days >= warningDays ? ' late' : ''}`}>{days}日</td>
-                  <td>{shortDate(orders.get(lot.orderId)?.due)}</td>
-                  <td>
-                    {operation
-                      ? `${shortDateTime(operation.startAt)}〜 ${equipmentNames.get(operation.equipmentId) ?? operation.equipmentId}`
-                      : '—'}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        <Table.ScrollContainer minWidth={640}>
+          <Table striped highlightOnHover verticalSpacing={6} horizontalSpacing={6}>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Lot</Table.Th>
+                <Table.Th>注番</Table.Th>
+                <Table.Th>工程</Table.Th>
+                <Table.Th ta="right">数量</Table.Th>
+                <Table.Th ta="right">滞留</Table.Th>
+                <Table.Th>納期</Table.Th>
+                <Table.Th>この工程の加工予定</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {lots.map((lot) => {
+                const days = stagnantDays(lot, today)
+                const operation = nextOperation(lot)
+                return (
+                  <Table.Tr key={lot.id}>
+                    <Table.Td>{lot.id}</Table.Td>
+                    <Table.Td>{lot.orderId}</Table.Td>
+                    <Table.Td>
+                      工程{lot.stepIndex + 1} {row.route[lot.stepIndex]}
+                    </Table.Td>
+                    <Table.Td ta="right" className="tabular">
+                      {lot.quantity}個
+                    </Table.Td>
+                    <Table.Td ta="right" className="tabular" c={days >= warningDays ? 'red' : undefined} fw={days >= warningDays ? 700 : undefined}>
+                      {days}日
+                    </Table.Td>
+                    <Table.Td>{shortDate(orders.get(lot.orderId)?.due)}</Table.Td>
+                    <Table.Td>
+                      {operation
+                        ? `${shortDateTime(operation.startAt)}〜 ${equipmentNames.get(operation.equipmentId) ?? operation.equipmentId}`
+                        : '—'}
+                    </Table.Td>
+                  </Table.Tr>
+                )
+              })}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
       )}
-    </section>
+    </Paper>
   )
 }

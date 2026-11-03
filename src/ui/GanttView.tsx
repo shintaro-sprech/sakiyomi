@@ -1,4 +1,6 @@
-import { useMemo, useState } from 'react'
+import { CloseButton, Group, Paper, SegmentedControl, Select, Stack, Text, Title } from '@mantine/core'
+import { useReducedMotion } from '@mantine/hooks'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { ProposedOption } from '../assistant/tools'
 import { addDays, daysBetween, MINUTES_PER_DAY, parseClock, weekday } from '../engine/dates'
@@ -19,11 +21,17 @@ const ZOOMS = [
   { label: '大', dayWidth: 260 },
 ]
 const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土']
+const NO_FOCUS = 'none'
 
 export function GanttView({ plan, today, highlight }: Props) {
   const [zoom, setZoom] = useState(1)
   const [focusOrder, setFocusOrder] = useState('')
   const [selected, setSelected] = useState<ScheduledOperation | null>(null)
+  const detailRef = useRef<HTMLDivElement>(null)
+  const reduceMotion = useReducedMotion()
+  useEffect(() => {
+    if (selected) detailRef.current?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
+  }, [selected, reduceMotion])
   const { scenario, result } = plan
   const { settings, data } = scenario
   const dayWidth = ZOOMS[zoom].dayWidth
@@ -59,35 +67,36 @@ export function GanttView({ plan, today, highlight }: Props) {
   }
 
   return (
-    <section className="gantt">
-      <div className="toolbar">
-        <div className="segmented" role="group" aria-label="表示の幅">
-          {ZOOMS.map((item, index) => (
-            <button key={item.label} aria-pressed={zoom === index} onClick={() => setZoom(index)}>
-              {item.label}
-            </button>
-          ))}
-        </div>
-        <label className="inline-field">
-          注番を強調
-          <select value={focusOrder} onChange={(event) => setFocusOrder(event.target.value)}>
-            <option value="">しない</option>
-            {data.orders.map((order) => (
-              <option key={order.id} value={order.id}>
-                {order.id}（{order.partNumber}）
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="legend">
+    <Stack gap="md">
+      <Group gap="md" wrap="wrap" align="flex-end">
+        <SegmentedControl
+          value={String(zoom)}
+          onChange={(value) => setZoom(Number(value))}
+          data={ZOOMS.map((item, index) => ({ value: String(index), label: item.label }))}
+          aria-label="表示の幅"
+        />
+        <Select
+          label="強調する注番"
+          value={focusOrder || NO_FOCUS}
+          onChange={(value) => setFocusOrder(!value || value === NO_FOCUS ? '' : value)}
+          data={[
+            { value: NO_FOCUS, label: 'なし' },
+            ...data.orders.map((order) => ({ value: order.id, label: `${order.id}（${order.partNumber}）` })),
+          ]}
+          allowDeselect={false}
+          w={200}
+        />
+        <Group gap="md" className="legend" h={36}>
           <span className="legend-item bar-ok">余裕あり</span>
           <span className="legend-item bar-tight">納期まで1日以内</span>
           <span className="legend-item bar-late">納期に遅れる</span>
           <span className="legend-item bar-setup">段取り</span>
-        </div>
-      </div>
+          <span className="legend-item bar-planned">未投入</span>
+          <span className="legend-item bar-down">設備停止</span>
+        </Group>
+      </Group>
 
-      <div className="gantt-scroll">
+      <Paper withBorder className="gantt-scroll">
         <div className="gantt-grid" style={{ width: 180 + days * dayWidth }}>
           <div className="gantt-row gantt-head">
             <div className="gantt-label">設備</div>
@@ -129,7 +138,7 @@ export function GanttView({ plan, today, highlight }: Props) {
                   })}
                   {operations.map((operation) => {
                     const left = x(operation.start)
-                    const width = Math.max(x(operation.end) - left, 3)
+                    const width = Math.max(x(operation.end) - left, 8)
                     const setupWidth = operation.setupMinutes > 0 ? x(operation.setupEnd) - left : 0
                     if (left > days * dayWidth) return null
                     return (
@@ -160,25 +169,23 @@ export function GanttView({ plan, today, highlight }: Props) {
             )
           })}
         </div>
-      </div>
+      </Paper>
 
       {result.unscheduled.length > 0 && (
-        <p className="chat-error">
-          計画に入れられなかった工程があります：
+        <Text c="red.7" size="sm">
+          計画に入れられなかった工程：
           {result.unscheduled.map((entry) => `${entry.lotId} ${entry.stepName}（${entry.reason}）`).join('、')}
-        </p>
+        </Text>
       )}
 
       {selected && (
-        <section className="lot-panel">
-          <header>
-            <h3>
+        <Paper withBorder p="md" ref={detailRef}>
+          <Group justify="space-between" mb="xs" wrap="nowrap">
+            <Title order={3} size="h5">
               {selected.lotId}・{selected.stepName}
-            </h3>
-            <button className="ghost" onClick={() => setSelected(null)} aria-label="閉じる">
-              ×
-            </button>
-          </header>
+            </Title>
+            <CloseButton onClick={() => setSelected(null)} aria-label="閉じる" />
+          </Group>
           <dl className="detail-grid">
             <dt>注番</dt>
             <dd>
@@ -201,9 +208,9 @@ export function GanttView({ plan, today, highlight }: Props) {
               {shortDate(dueByOrder.get(selected.orderId))} / {shortDateTime(forecasts.get(selected.orderId)?.finishAt)}
             </dd>
           </dl>
-        </section>
+        </Paper>
       )}
-    </section>
+    </Stack>
   )
 }
 

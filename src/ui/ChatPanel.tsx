@@ -1,5 +1,8 @@
 import type Anthropic from '@anthropic-ai/sdk'
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { ActionIcon, Alert, Button, Group, Paper, ScrollArea, Stack, Text, Textarea, Title } from '@mantine/core'
+import { useReducedMotion } from '@mantine/hooks'
+import { IconCalculator, IconListSearch, IconPlus, IconRoute, IconSend, IconStack2 } from '@tabler/icons-react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { ChatError, converse } from '../assistant/chatClient'
 import { TOOL_NAMES } from '../assistant/toolSchemas'
@@ -8,14 +11,17 @@ import type { PlanState } from '../engine/plan'
 import { describeChange, parseChange } from '../engine/scenario'
 import type { PlantData } from '../engine/types'
 import type { Decision } from '../state/store'
+import { Mascot, type MascotState } from './Mascot'
 import { EffectSummary, OptionCard } from './OptionCard'
 import { RichText } from './RichText'
 
 type MessageParam = Anthropic.Beta.BetaMessageParam
+type ToolUse = Anthropic.Beta.BetaToolUseBlock
 
 type Props = {
   planState: PlanState
   sampleData: boolean
+  decisions: Decision[]
   previewing: ProposedOption | null
   onPreview: (option: ProposedOption | null) => void
   onAdopt: (decision: Omit<Decision, 'id' | 'at'>) => void
@@ -27,16 +33,22 @@ const SAMPLE_PROMPTS = [
   '溶接ロボ1が明日1日止まります',
   '今いちばん危ない注番はどれ？',
 ]
-
 const GENERAL_PROMPTS = ['今いちばん危ない注番はどれ？', '来週いちばん混む設備はどれ？']
 
-export function ChatPanel({ planState, sampleData, previewing, onPreview, onAdopt }: Props) {
+// Marks text the app adds to the planner's next message after a button press.
+const SCREEN_NOTE = '［画面での操作］'
+const SPEAKING_MS = 1600
+
+export function ChatPanel({ planState, sampleData, decisions, previewing, onPreview, onAdopt }: Props) {
   const [history, setHistory] = useState<MessageParam[]>([])
   const [options, setOptions] = useState<Record<string, ProposedOption[]>>({})
-  const [adoptedKeys, setAdoptedKeys] = useState<string[]>([])
+  // Cards follow the decision log, so undoing a decision reopens its proposal.
+  const adoptedKeys = decisions.flatMap((decision) => (decision.sourceKey ? [decision.sourceKey] : []))
+  const reduceMotion = useReducedMotion()
   const [pendingNotes, setPendingNotes] = useState<string[]>([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  const [speaking, setSpeaking] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const stateRef = useRef(planState)
   const endRef = useRef<HTMLDivElement>(null)
@@ -46,14 +58,24 @@ export function ChatPanel({ planState, sampleData, previewing, onPreview, onAdop
   }, [planState])
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'end' })
-  }, [history, busy])
+    endRef.current?.scrollIntoView({ block: 'end', behavior: reduceMotion ? 'auto' : 'smooth' })
+  }, [history, busy, reduceMotion])
+
+  useEffect(() => {
+    if (!speaking) return
+    const timer = window.setTimeout(() => setSpeaking(false), SPEAKING_MS)
+    return () => window.clearTimeout(timer)
+  }, [speaking])
+
+  const turns = useMemo(() => buildTurns(history), [history])
+  const activity = busy ? latestActivity(history, planState.data) : null
+  const mascotState: MascotState = busy ? 'thinking' : speaking ? 'speaking' : 'idle'
 
   async function send(text: string) {
     const message = text.trim()
     if (!message || busy) return
     const content: Anthropic.Beta.BetaTextBlockParam[] = [
-      ...pendingNotes.map((note) => ({ type: 'text' as const, text: `［画面での操作］${note}` })),
+      ...pendingNotes.map((note) => ({ type: 'text' as const, text: `${SCREEN_NOTE}${note}` })),
       { type: 'text', text: message },
     ]
     const next: MessageParam[] = [...history, { role: 'user', content }]
@@ -67,6 +89,7 @@ export function ChatPanel({ planState, sampleData, previewing, onPreview, onAdop
         onHistory: setHistory,
         onOptions: (id, proposed) => setOptions((current) => ({ ...current, [id]: proposed })),
       })
+      setSpeaking(true)
     } catch (caught) {
       setError(caught instanceof ChatError ? caught.message : '相談の途中でエラーが起きました。もう一度送ってください')
     } finally {
@@ -81,8 +104,8 @@ export function ChatPanel({ planState, sampleData, previewing, onPreview, onAdop
       reason: option.reason,
       tradeoff: option.tradeoff,
       note,
+      sourceKey: key,
     })
-    setAdoptedKeys((current) => [...current, key])
     setPendingNotes((current) => [...current, `案「${option.title}」を計画に反映しました。${note ? `理由: ${note}` : ''}`])
     if (previewing === option) onPreview(null)
   }
@@ -97,70 +120,110 @@ export function ChatPanel({ planState, sampleData, previewing, onPreview, onAdop
   function reset() {
     setHistory([])
     setOptions({})
-    setAdoptedKeys([])
     setPendingNotes([])
     setError(null)
   }
 
-  const prompts = sampleData ? SAMPLE_PROMPTS : GENERAL_PROMPTS
+  function renderOptions(toolUseId: string) {
+    const proposed = options[toolUseId] ?? []
+    // The options of one proposal are alternatives: once one is adopted, the rest close.
+    const decided = adoptedKeys.some((key) => key.startsWith(`${toolUseId}:`))
+    return (
+      <Stack gap={8}>
+        {proposed[0] && <EventSummary event={proposed[0].event} />}
+        {proposed.map((option, index) => {
+          const key = `${toolUseId}:${index}`
+          return (
+            <OptionCard
+              key={key}
+              option={option}
+              state={adoptedKeys.includes(key) ? 'adopted' : decided ? 'closed' : 'open'}
+              previewing={previewing === option}
+              onPreview={() => onPreview(previewing === option ? null : option)}
+              onAdopt={(note) => adopt(key, option, note)}
+            />
+          )
+        })}
+      </Stack>
+    )
+  }
+
+  const empty = history.length === 0
 
   return (
-    <aside className="chat" aria-label="Claude に相談">
-      <header className="chat-header">
-        <h2>Claude に相談</h2>
-        {history.length > 0 && (
-          <button className="ghost" onClick={reset} disabled={busy}>
+    <div className="chat">
+      <Group className="chat-header" justify="space-between" wrap="nowrap">
+        <Group gap={8} wrap="nowrap">
+          {!empty && <Mascot state={mascotState} size={36} />}
+          <Title order={2} size="h5">
+            Claude に相談
+          </Title>
+        </Group>
+        {!empty && (
+          <Button variant="subtle" size="xs" leftSection={<IconPlus size={14} />} onClick={reset} disabled={busy}>
             新しい相談
-          </button>
+          </Button>
         )}
-      </header>
+      </Group>
 
-      <div className="chat-log">
-        {history.length === 0 && (
-          <div className="chat-empty">
-            <p>材料の遅れ、数量の変更、設備の停止などを話しかけてください。出荷日への影響を試算して、組み替え案を出します。</p>
-            <div className="prompt-list">
-              {prompts.map((prompt) => (
-                <button key={prompt} onClick={() => void send(prompt)} disabled={busy}>
+      <ScrollArea className="chat-log" type="auto" scrollbarSize={6}>
+        {empty ? (
+          <Stack className="chat-welcome" align="center" gap="md">
+            <Mascot state={mascotState} size={96} />
+            <div className="speech speech-center">何がありましたか？</div>
+            <Stack gap={6} w="100%">
+              {(sampleData ? SAMPLE_PROMPTS : GENERAL_PROMPTS).map((prompt) => (
+                <Button
+                  key={prompt}
+                  variant="default"
+                  justify="flex-start"
+                  fullWidth
+                  onClick={() => void send(prompt)}
+                  disabled={busy}
+                  styles={{ label: { whiteSpace: 'normal', textAlign: 'left' } }}
+                  h="auto"
+                  py={8}
+                >
                   {prompt}
-                </button>
+                </Button>
               ))}
-            </div>
-          </div>
+            </Stack>
+          </Stack>
+        ) : (
+          <Stack gap="sm" p="sm" role="log" aria-live="polite" aria-label="相談のやり取り">
+            {turns.map((turn, index) => (
+              <Stack key={index} gap={8}>
+                {turn.userText && <div className="bubble bubble-user">{turn.userText}</div>}
+                {turn.trail.length > 0 && <Trail uses={turn.trail} data={planState.data} />}
+                {turn.items.map((item, itemIndex) =>
+                  item.kind === 'text' ? (
+                    <AssistantBubble key={itemIndex}>
+                      <RichText text={item.text} />
+                    </AssistantBubble>
+                  ) : (
+                    <div key={itemIndex}>{renderOptions(item.toolUseId)}</div>
+                  ),
+                )}
+              </Stack>
+            ))}
+            {busy && (
+              <AssistantBubble>
+                <span className="typing" role="status" aria-label={activity ?? '考えています'}>
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              </AssistantBubble>
+            )}
+            {error && (
+              <Alert color="red" variant="light">
+                {error}
+              </Alert>
+            )}
+            <div ref={endRef} />
+          </Stack>
         )}
-
-        {history.map((message, index) => (
-          <Fragment key={index}>
-            {renderMessage(message, planState.data, (block) => {
-              const proposed = options[block.id] ?? []
-              // The options of one proposal are alternatives: once one is adopted, the rest close.
-              const decided = adoptedKeys.some((key) => key.startsWith(`${block.id}:`))
-              return (
-                <>
-                  {proposed[0] && <EventSummary event={proposed[0].event} />}
-                  {proposed.map((option, optionIndex) => {
-                    const key = `${block.id}:${optionIndex}`
-                    return (
-                      <OptionCard
-                        key={key}
-                        option={option}
-                        state={adoptedKeys.includes(key) ? 'adopted' : decided ? 'closed' : 'open'}
-                        previewing={previewing === option}
-                        onPreview={() => onPreview(previewing === option ? null : option)}
-                        onAdopt={(note) => adopt(key, option, note)}
-                      />
-                    )
-                  })}
-                </>
-              )
-            })}
-          </Fragment>
-        ))}
-
-        {busy && <p className="chat-busy">考えています…</p>}
-        {error && <p className="chat-error">{error}</p>}
-        <div ref={endRef} />
-      </div>
+      </ScrollArea>
 
       <form
         className="chat-input"
@@ -169,88 +232,122 @@ export function ChatPanel({ planState, sampleData, previewing, onPreview, onAdop
           void send(input)
         }}
       >
-        <textarea
+        <Textarea
           value={input}
-          onChange={(event) => setInput(event.target.value)}
+          onChange={(event) => setInput(event.currentTarget.value)}
           onKeyDown={onKeyDown}
           placeholder="例：注番1045の材料が2日遅れる"
-          rows={2}
+          autosize
+          minRows={1}
+          maxRows={5}
           disabled={busy}
+          aria-label="Claude への相談"
+          style={{ flex: 1 }}
         />
-        <button className="primary" type="submit" disabled={busy || !input.trim()}>
-          送信
-        </button>
+        <ActionIcon type="submit" size="lg" disabled={busy || !input.trim()} aria-label="送信">
+          <IconSend size={18} />
+        </ActionIcon>
       </form>
-    </aside>
+    </div>
+  )
+}
+
+function AssistantBubble({ children }: { children: ReactNode }) {
+  return (
+    <Group gap={6} align="flex-start" wrap="nowrap">
+      <Mascot state="idle" size={28} still />
+      <div className="bubble bubble-assistant">{children}</div>
+    </Group>
   )
 }
 
 function EventSummary({ event }: { event: ReportedEvent }) {
   if (event.changes.length === 0) return null
   return (
-    <section className="event-box">
-      <h4>聞いた出来事</h4>
-      <ul className="option-changes">
-        {event.labels.map((label) => (
-          <li key={label}>{label}</li>
-        ))}
-      </ul>
-      <p className="event-caption">何もしないと</p>
-      <EffectSummary comparison={event.comparison} />
-    </section>
+    <Paper className="event-box" p="sm" radius="md">
+      <Stack gap={6}>
+        <Text fw={700} size="sm">
+          {event.labels.join('、')}
+        </Text>
+        <Text size="xs" c="dimmed">
+          何もしないと
+        </Text>
+        <EffectSummary comparison={event.comparison} />
+      </Stack>
+    </Paper>
   )
 }
 
-function renderMessage(
-  message: MessageParam,
-  data: PlantData,
-  renderOptions: (block: Anthropic.Beta.BetaToolUseBlock) => ReactNode,
-) {
-  if (!message.content) return null
-  if (typeof message.content === 'string') {
-    return <div className={`bubble bubble-${message.role}`}>{message.content}</div>
-  }
-
-  if (message.role === 'user') {
-    const texts = message.content.flatMap((block) =>
-      block.type === 'text' && !block.text.startsWith('［画面での操作］') ? [block.text] : [],
-    )
-    return texts.length > 0 ? <div className="bubble bubble-user">{texts.join('\n')}</div> : null
-  }
-
-  return message.content.map((block, index) => {
-    if (block.type === 'text' && block.text.trim()) {
-      return (
-        <div key={index} className="bubble bubble-assistant">
-          <RichText text={block.text} />
-        </div>
-      )
-    }
-    if (block.type === 'tool_use') {
-      return (
-        <Fragment key={index}>
-          <p className="chat-activity">{describeToolUse(block, data)}</p>
-          {block.name === TOOL_NAMES.presentOptions && <div className="option-list">{renderOptions(block)}</div>}
-        </Fragment>
-      )
-    }
-    return null
-  })
+function Trail({ uses, data }: { uses: ToolUse[]; data: PlantData }) {
+  return (
+    <ul className="trail" aria-label="Claude が使った道具">
+      {uses.map((use) => {
+        const { icon, label } = describeToolUse(use, data)
+        return (
+          <li key={use.id} title={label}>
+            {icon}
+            <span>{label}</span>
+          </li>
+        )
+      })}
+    </ul>
+  )
 }
 
-function describeToolUse(block: Anthropic.Beta.BetaToolUseBlock, data: PlantData): string {
-  const input = block.input as Record<string, unknown>
-  switch (block.name) {
+type Turn = {
+  userText: string | null
+  trail: ToolUse[]
+  items: ({ kind: 'text'; text: string } | { kind: 'options'; toolUseId: string })[]
+}
+
+// Groups the API history into what the planner sees: their message, the tools Claude
+// used in between, and Claude's replies and option cards in order.
+function buildTurns(history: MessageParam[]): Turn[] {
+  const turns: Turn[] = []
+  for (const message of history) {
+    const blocks = typeof message.content === 'string' ? [{ type: 'text' as const, text: message.content }] : (message.content ?? [])
+    if (message.role === 'user') {
+      const texts = blocks.flatMap((block) =>
+        block.type === 'text' && !block.text.startsWith(SCREEN_NOTE) ? [block.text] : [],
+      )
+      if (texts.length > 0) turns.push({ userText: texts.join('\n'), trail: [], items: [] })
+      continue
+    }
+    if (turns.length === 0) turns.push({ userText: null, trail: [], items: [] })
+    const turn = turns[turns.length - 1]
+    for (const block of blocks) {
+      if (block.type === 'text' && block.text.trim()) turn.items.push({ kind: 'text', text: block.text })
+      if (block.type === 'tool_use') {
+        turn.trail.push(block as ToolUse)
+        if (block.name === TOOL_NAMES.presentOptions) turn.items.push({ kind: 'options', toolUseId: block.id })
+      }
+    }
+  }
+  return turns
+}
+
+function latestActivity(history: MessageParam[], data: PlantData): string | null {
+  const last = history[history.length - 1]
+  if (!last || last.role !== 'user' || typeof last.content === 'string') return null
+  const previous = history[history.length - 2]
+  if (!previous || previous.role !== 'assistant' || typeof previous.content === 'string') return null
+  const uses = (previous.content ?? []).filter((block) => block.type === 'tool_use') as ToolUse[]
+  return uses.length > 0 ? describeToolUse(uses[uses.length - 1], data).label : null
+}
+
+function describeToolUse(use: ToolUse, data: PlantData): { icon: ReactNode; label: string } {
+  const input = use.input as Record<string, unknown>
+  switch (use.name) {
     case TOOL_NAMES.getSituation:
-      return '今の計画を確認しました'
+      return { icon: <IconListSearch size={13} />, label: '計画を確認' }
     case TOOL_NAMES.getOrderPlan:
-      return `注番${String(input.orderId)}の加工予定を確認しました`
+      return { icon: <IconRoute size={13} />, label: `注番${String(input.orderId)}の予定` }
     case TOOL_NAMES.simulateChanges:
-      return `試算：${labelChanges(input.changes, data)}`
+      return { icon: <IconCalculator size={13} />, label: `試算：${labelChanges(input.changes, data)}` }
     case TOOL_NAMES.presentOptions:
-      return '案を出しました'
+      return { icon: <IconStack2 size={13} />, label: '案を表示' }
     default:
-      return block.name
+      return { icon: null, label: use.name }
   }
 }
 
