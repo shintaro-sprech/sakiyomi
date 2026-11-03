@@ -131,6 +131,15 @@ export function describeSituation(state: PlanState) {
     thisMonth: summarizeOutlook(monthlyOutlook(plan, state.today)),
     parts: data.parts,
     setupRules: data.setupRules,
+    crews: data.crews.map((crew) => ({
+      name: crew.name,
+      processes: crew.processes,
+      usualPeople: crew.people,
+      equipment: data.equipment.filter((equipment) => crew.processes.includes(equipment.process)).map((equipment) => equipment.id),
+      days: result.crewDays
+        .filter((day) => day.crew === crew.name)
+        .map((day) => ({ date: day.date, people: day.people, mostRunningAtOnce: day.peak })),
+    })),
     equipment: data.equipment.map((equipment) => {
       const operations = result.operations.filter((operation) => operation.equipmentId === equipment.id)
       return {
@@ -216,6 +225,7 @@ function describeOrderPlan(state: PlanState, orderIdInput: unknown) {
         equipmentId: operation.equipmentId,
         quantity: operation.quantity,
         setupMinutes: operation.setupMinutes,
+        waitedForPeople: operation.waitedForPeople,
         start: operation.startAt,
         end: operation.endAt,
       })),

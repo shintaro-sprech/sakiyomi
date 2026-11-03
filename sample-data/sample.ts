@@ -72,6 +72,12 @@ export function createSampleData(today: IsoDate): PlantData {
       { process: '切断', fromShape: '角物', toShape: '板金', minutes: 25 },
       { process: '曲げ', fromShape: '板金', toShape: '板金', minutes: 20 },
     ],
+    crews: [
+      { name: '板金班', processes: ['切断', '曲げ', '溶接'], people: 3 },
+      { name: '機械班', processes: ['切削', '熱処理', '研削', '穴あけ'], people: 2 },
+      { name: '仕上げ班', processes: ['検査', '梱包'], people: 1 },
+    ],
+    attendance: [{ crew: '機械班', date: workday(2), people: 1 }],
     orders: [
       { id: '1030', partNumber: 'B-200', quantity: 10, due: workday(5) },
       { id: '1045', partNumber: 'B-200', quantity: 30, due: workday(8), materialOn: workday(1) },

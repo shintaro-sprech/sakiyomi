@@ -68,6 +68,26 @@ describe('executeTool', () => {
     expect(outcome.options?.[0].effect.grossProfitDelta).toBeLessThan(0)
   })
 
+  it('simulates someone of a crew being off', () => {
+    const outcome = executeTool(
+      TOOL_NAMES.simulateChanges,
+      { changes: [{ kind: 'headcount', crew: '機械班', from: '2026-11-04', to: '2026-11-10', people: 1 }] },
+      state,
+    )
+    const result = JSON.parse(outcome.content)
+
+    expect(outcome.isError).toBe(false)
+    expect(result.changes).toEqual(['機械班を11/4〜11/10は1人にする'])
+    expect(result.shifted.length).toBeGreaterThan(0)
+  })
+
+  it('tells Claude how many people each crew has', () => {
+    const crew = describeSituation(state).crews.find((item) => item.name === '機械班')
+
+    expect(crew?.equipment).toEqual(['MC-1', 'HT-1', 'GRD-1', 'DRL-1'])
+    expect(crew?.days.find((day) => day.date === '2026-11-05')?.people).toBe(1)
+  })
+
   it('adds the event only once across decisions', () => {
     const outcome = executeTool(
       TOOL_NAMES.presentOptions,

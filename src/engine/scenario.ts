@@ -1,5 +1,5 @@
 import { addDays } from './dates'
-import type { Equipment, IsoDate, Order, PlantData, Settings } from './types'
+import type { Crew, Equipment, IsoDate, Order, PlantData, Settings } from './types'
 
 // A what-if change. Claude's tools, the option cards and the decision log
 // all speak in these.
@@ -12,11 +12,14 @@ export type Change =
   | { kind: 'expedite'; orderId: string }
   | { kind: 'hold'; orderId: string; until: IsoDate }
   | { kind: 'addOrder'; partNumber: string; quantity: number; due: IsoDate }
+  | { kind: 'headcount'; crew: string; from: IsoDate; to: IsoDate; people: number }
 
 export type Downtime = { equipmentId: string; from: IsoDate; to: IsoDate }
 export type Overtime = { equipmentId: string; from: IsoDate; to: IsoDate; minutesPerDay: number }
 export type HolidayWork = { equipmentId: string; date: IsoDate }
 export type Hold = { orderId: string; until: IsoDate }
+// People of a crew on the working days of a period: help from elsewhere, or someone off.
+export type Headcount = { crew: string; from: IsoDate; to: IsoDate; people: number }
 
 export type Scenario = {
   data: PlantData
@@ -27,6 +30,8 @@ export type Scenario = {
   expedited: string[]
   // Orders that must not start before a day.
   holds: Hold[]
+  // Later entries win where periods overlap.
+  headcount: Headcount[]
 }
 
 // Raised when a change cannot apply. The message is shown to people and Claude.
@@ -41,6 +46,7 @@ export function buildScenario(data: PlantData, settings: Settings, changes: Chan
     holidayWork: [],
     expedited: [],
     holds: [],
+    headcount: [],
   }
   for (const change of changes) {
     applyChange(scenario, change, today)
@@ -116,6 +122,14 @@ function applyChange(scenario: Scenario, change: Change, today: IsoDate): void {
       })
       return
     }
+    case 'headcount': {
+      findCrew(scenario.data, change.crew)
+      if (!Number.isInteger(change.people) || change.people < 0 || change.to < change.from) {
+        throw new ChangeError('人数は0以上の整数にし、期間の始まりと終わりを正しく指定してください')
+      }
+      scenario.headcount.push({ crew: change.crew, from: change.from, to: change.to, people: change.people })
+      return
+    }
   }
 }
 
@@ -169,6 +183,8 @@ export function parseChange(input: unknown): Change {
       return { kind: 'hold', orderId: text('orderId'), until: date('until') }
     case 'addOrder':
       return { kind: 'addOrder', partNumber: text('partNumber'), quantity: integer('quantity'), due: date('due') }
+    case 'headcount':
+      return { kind: 'headcount', crew: text('crew'), from: date('from'), to: date('to'), people: integer('people') }
     default:
       throw new ChangeError(`変更の種類「${String(value.kind)}」には対応していません`)
   }
@@ -194,6 +210,8 @@ export function describeChange(change: Change, data: PlantData): string {
       return `注番${change.orderId}を${formatRange(change.until, change.until).replace(/に$/, '')}まで着手しない`
     case 'addOrder':
       return `${change.partNumber}を${change.quantity}個、${formatRange(change.due, change.due).replace(/に$/, '')}納期で追加する`
+    case 'headcount':
+      return `${change.crew}を${formatRange(change.from, change.to).replace(/に$/, '')}は${change.people}人にする`
   }
 }
 
@@ -218,6 +236,12 @@ function findOrder(data: PlantData, id: string): Order {
   const order = data.orders.find((candidate) => candidate.id === id)
   if (!order) throw new ChangeError(`注番${id}は見つかりません`)
   return order
+}
+
+function findCrew(data: PlantData, name: string): Crew {
+  const crew = data.crews.find((candidate) => candidate.name === name)
+  if (!crew) throw new ChangeError(`班「${name}」は見つかりません`)
+  return crew
 }
 
 function findEquipment(data: PlantData, id: string): Equipment {

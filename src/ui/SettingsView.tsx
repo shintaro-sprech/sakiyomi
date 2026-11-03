@@ -8,7 +8,6 @@ import {
   Input,
   List,
   Modal,
-  NumberInput,
   Paper,
   Slider,
   Stack,
@@ -22,8 +21,10 @@ import { useDisclosure } from '@mantine/hooks'
 import { IconDownload, IconRefresh, IconUpload } from '@tabler/icons-react'
 import { useState } from 'react'
 
-import type { Settings } from '../engine/types'
+import type { Crew, IsoDate, Settings } from '../engine/types'
 import type { AppState } from '../state/store'
+import { shortDate, weekdayName, workingDays } from './format'
+import { NumberField } from './NumberField'
 
 type PartNumberKey = 'price' | 'materialCost' | 'stock' | 'monthlyUsage'
 
@@ -53,9 +54,7 @@ export function SettingsView({ app }: { app: AppState }) {
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) => app.updateSettings({ ...settings, [key]: value })
   const setNumber = (key: 'horizonDays' | 'transferMinutes' | 'stagnationWarningDays', min: number, max: number) =>
-    (value: number | string) => {
-      if (typeof value === 'number') set(key, clamp(value, min, max))
-    }
+    (value: number) => set(key, clamp(value, min, max))
 
   const toggleWeekday = (day: number) =>
     set(
@@ -71,16 +70,14 @@ export function SettingsView({ app }: { app: AppState }) {
       stopped ? [...settings.stoppedEquipment, id] : settings.stoppedEquipment.filter((item) => item !== id),
     )
 
-  const setEquipmentNumber = (id: string, key: 'setupMinutes' | 'hourlyCost', value: number | string) => {
-    if (typeof value !== 'number') return
+  const setEquipmentNumber = (id: string, key: 'setupMinutes' | 'hourlyCost', value: number) => {
     app.updateData({
       ...data,
       equipment: data.equipment.map((item) => (item.id === id ? { ...item, [key]: clamp(value, 0, 1_000_000) } : item)),
     })
   }
 
-  const setPartNumber = (partNumber: string, key: PartNumberKey, value: number | string) => {
-    if (typeof value !== 'number') return
+  const setPartNumber = (partNumber: string, key: PartNumberKey, value: number) => {
     app.updateData({
       ...data,
       parts: data.parts.map((part) =>
@@ -88,6 +85,25 @@ export function SettingsView({ app }: { app: AppState }) {
       ),
     })
   }
+
+  const setCrewPeople = (name: string, value: number) => {
+    app.updateData({
+      ...data,
+      crews: data.crews.map((crew) => (crew.name === name ? { ...crew, people: clamp(value, 0, 99) } : crew)),
+    })
+  }
+
+  // A day's number equal to the usual one needs no entry of its own.
+  const setAttendance = (crew: Crew, date: IsoDate, value: number) => {
+    const people = clamp(value, 0, 99)
+    const others = data.attendance.filter((entry) => !(entry.crew === crew.name && entry.date === date))
+    app.updateData({
+      ...data,
+      attendance: people === crew.people ? others : [...others, { crew: crew.name, date, people }],
+    })
+  }
+
+  const days = workingDays(app.planState.today, settings)
 
   async function onImport(file: File | null) {
     if (!file) return
@@ -161,65 +177,66 @@ export function SettingsView({ app }: { app: AppState }) {
               </Input.Wrapper>
             </Grid.Col>
             <Grid.Col span={{ base: 6, lg: 3 }}>
-              <NumberInput
+              <NumberField
                 label="ガントに出す期間"
                 suffix=" 日"
+                clampBehavior="blur"
                 min={3}
                 max={60}
                 value={settings.horizonDays}
-                onChange={setNumber('horizonDays', 3, 60)}
+                onCommit={setNumber('horizonDays', 3, 60)}
               />
             </Grid.Col>
             <Grid.Col span={{ base: 6, lg: 3 }}>
-              <NumberInput
+              <NumberField
                 label="工程間の待ち時間"
                 suffix=" 分"
                 min={0}
                 max={24 * 60}
                 step={10}
                 value={settings.transferMinutes}
-                onChange={setNumber('transferMinutes', 0, 24 * 60)}
+                onCommit={setNumber('transferMinutes', 0, 24 * 60)}
               />
             </Grid.Col>
             <Grid.Col span={{ base: 6, lg: 3 }}>
-              <NumberInput
+              <NumberField
                 label="止まっているLotの警告"
                 suffix=" 日以上"
                 min={1}
                 max={60}
                 value={settings.stagnationWarningDays}
-                onChange={setNumber('stagnationWarningDays', 1, 60)}
+                onCommit={setNumber('stagnationWarningDays', 1, 60)}
               />
             </Grid.Col>
             <Grid.Col span={{ base: 6, lg: 3 }}>
-              <NumberInput
+              <NumberField
                 label="労務費（1人1時間）"
                 suffix=" 円"
                 thousandSeparator=","
                 min={0}
                 step={100}
                 value={settings.laborRate}
-                onChange={(value) => typeof value === 'number' && set('laborRate', clamp(value, 0, 100000))}
+                onCommit={(value) => set('laborRate', clamp(value, 0, 100000))}
               />
             </Grid.Col>
             <Grid.Col span={{ base: 6, lg: 3 }}>
-              <NumberInput
+              <NumberField
                 label="残業の割増"
                 suffix=" %"
                 min={0}
                 max={100}
                 value={Math.round(settings.overtimePremium * 100)}
-                onChange={(value) => typeof value === 'number' && set('overtimePremium', clamp(value, 0, 100) / 100)}
+                onCommit={(value) => set('overtimePremium', clamp(value, 0, 100) / 100)}
               />
             </Grid.Col>
             <Grid.Col span={{ base: 6, lg: 3 }}>
-              <NumberInput
+              <NumberField
                 label="休日出勤の割増"
                 suffix=" %"
                 min={0}
                 max={100}
                 value={Math.round(settings.holidayPremium * 100)}
-                onChange={(value) => typeof value === 'number' && set('holidayPremium', clamp(value, 0, 100) / 100)}
+                onCommit={(value) => set('holidayPremium', clamp(value, 0, 100) / 100)}
               />
             </Grid.Col>
           </Grid>
@@ -275,13 +292,13 @@ export function SettingsView({ app }: { app: AppState }) {
                     <Table.Td>{part.shape}</Table.Td>
                     {PART_NUMBERS.map((column) => (
                       <Table.Td key={column.key}>
-                        <NumberInput
+                        <NumberField
                           size="xs"
                           suffix={column.suffix}
                           thousandSeparator=","
                           min={0}
                           value={part[column.key]}
-                          onChange={(value) => setPartNumber(part.partNumber, column.key, value)}
+                          onCommit={(value) => setPartNumber(part.partNumber, column.key, value)}
                           aria-label={`${part.partNumber}の${column.label}`}
                         />
                       </Table.Td>
@@ -299,58 +316,129 @@ export function SettingsView({ app }: { app: AppState }) {
           設備
         </Title>
         <Paper withBorder>
-          <Table verticalSpacing="xs" horizontalSpacing={6}>
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>設備</Table.Th>
-                <Table.Th>担当工程</Table.Th>
-                <Table.Th w={130}>段取り</Table.Th>
-                <Table.Th w={130}>1時間の費用</Table.Th>
-                <Table.Th w={80}>止める</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {data.equipment.map((equipment) => (
-                <Table.Tr key={equipment.id}>
-                  <Table.Td>{equipment.name}</Table.Td>
-                  <Table.Td>{equipment.process}</Table.Td>
-                  <Table.Td>
-                    <NumberInput
-                      size="xs"
-                      suffix=" 分"
-                      min={0}
-                      max={24 * 60}
-                      step={5}
-                      value={equipment.setupMinutes}
-                      onChange={(value) => setEquipmentNumber(equipment.id, 'setupMinutes', value)}
-                      aria-label={`${equipment.name}の段取り時間`}
-                    />
-                  </Table.Td>
-                  <Table.Td>
-                    <NumberInput
-                      size="xs"
-                      suffix=" 円"
-                      thousandSeparator=","
-                      min={0}
-                      step={100}
-                      value={equipment.hourlyCost}
-                      onChange={(value) => setEquipmentNumber(equipment.id, 'hourlyCost', value)}
-                      aria-label={`${equipment.name}の1時間の費用`}
-                    />
-                  </Table.Td>
-                  <Table.Td>
-                    <Switch
-                      checked={settings.stoppedEquipment.includes(equipment.id)}
-                      onChange={(event) => toggleStopped(equipment.id, event.currentTarget.checked)}
-                      aria-label={`${equipment.name}を止める`}
-                    />
-                  </Table.Td>
+          <Table.ScrollContainer minWidth={600}>
+            <Table verticalSpacing="xs" horizontalSpacing={6}>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>設備</Table.Th>
+                  <Table.Th>担当工程</Table.Th>
+                  <Table.Th w={130}>段取り</Table.Th>
+                  <Table.Th w={130}>1時間の費用</Table.Th>
+                  <Table.Th w={80}>止める</Table.Th>
                 </Table.Tr>
-              ))}
-            </Table.Tbody>
-          </Table>
+              </Table.Thead>
+              <Table.Tbody>
+                {data.equipment.map((equipment) => (
+                  <Table.Tr key={equipment.id}>
+                    <Table.Td>{equipment.name}</Table.Td>
+                    <Table.Td>{equipment.process}</Table.Td>
+                    <Table.Td>
+                      <NumberField
+                        size="xs"
+                        suffix=" 分"
+                        min={0}
+                        max={24 * 60}
+                        step={5}
+                        value={equipment.setupMinutes}
+                        onCommit={(value) => setEquipmentNumber(equipment.id, 'setupMinutes', value)}
+                        aria-label={`${equipment.name}の段取り時間`}
+                      />
+                    </Table.Td>
+                    <Table.Td>
+                      <NumberField
+                        size="xs"
+                        suffix=" 円"
+                        thousandSeparator=","
+                        min={0}
+                        step={100}
+                        value={equipment.hourlyCost}
+                        onCommit={(value) => setEquipmentNumber(equipment.id, 'hourlyCost', value)}
+                        aria-label={`${equipment.name}の1時間の費用`}
+                      />
+                    </Table.Td>
+                    <Table.Td>
+                      <Switch
+                        checked={settings.stoppedEquipment.includes(equipment.id)}
+                        onChange={(event) => toggleStopped(equipment.id, event.currentTarget.checked)}
+                        aria-label={`${equipment.name}を止める`}
+                      />
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
         </Paper>
       </section>
+
+      {data.crews.length > 0 && (
+        <section>
+          <Title order={2} size="h4" mb="sm">
+            班と出勤
+          </Title>
+          <Paper withBorder>
+            <Table.ScrollContainer minWidth={320 + days.length * 60}>
+              <Table verticalSpacing="xs" horizontalSpacing={6}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th className="sticky-col">班</Table.Th>
+                    <Table.Th>担当工程</Table.Th>
+                    <Table.Th w={96}>いつも</Table.Th>
+                    {days.map((date) => (
+                      <Table.Th key={date} w={60} ta="center" className="tabular">
+                        {shortDate(date)}
+                        <Text span display="block" size="xs" c="dimmed">
+                          {weekdayName(date)}
+                        </Text>
+                      </Table.Th>
+                    ))}
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {data.crews.map((crew) => (
+                    <Table.Tr key={crew.name}>
+                      <Table.Th scope="row" className="sticky-col" style={{ whiteSpace: 'nowrap' }}>
+                        {crew.name}
+                      </Table.Th>
+                      <Table.Td>{crew.processes.join('・')}</Table.Td>
+                      <Table.Td>
+                        <NumberField
+                          size="xs"
+                          suffix=" 人"
+                          min={0}
+                          max={99}
+                          value={crew.people}
+                          onCommit={(value) => setCrewPeople(crew.name, value)}
+                          aria-label={`${crew.name}のいつもの人数`}
+                        />
+                      </Table.Td>
+                      {days.map((date) => {
+                        const entry = data.attendance.find((item) => item.crew === crew.name && item.date === date)
+                        const differs = entry !== undefined && entry.people !== crew.people
+                        return (
+                          <Table.Td key={date}>
+                            <NumberField
+                              size="xs"
+                              hideControls
+                              min={0}
+                              max={99}
+                              value={entry?.people ?? crew.people}
+                              onCommit={(value) => setAttendance(crew, date, value)}
+                              aria-label={`${crew.name}の${shortDate(date)}の人数`}
+                              styles={{ input: { textAlign: 'center', fontWeight: differs ? 700 : undefined } }}
+                              variant={differs ? 'filled' : 'default'}
+                            />
+                          </Table.Td>
+                        )
+                      })}
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          </Paper>
+        </section>
+      )}
 
       <section>
         <Title order={2} size="h4" mb="sm">

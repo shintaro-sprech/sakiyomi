@@ -13,6 +13,8 @@ function plant(quantity: number, stock = 100, monthlyUsage = 0): PlantData {
     routes: { P: [{ name: '加工', minutesPerPiece: 60 }] },
     equipment: [{ id: 'M1', name: 'M1', process: '加工', setupMinutes: 0, hourlyCost: 600 }],
     setupRules: [],
+    crews: [],
+    attendance: [],
     orders: [{ id: '1', partNumber: 'P', quantity, due: '2026-12-31' }],
     lots: [],
   }

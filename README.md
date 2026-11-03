@@ -1,6 +1,6 @@
 # Sakiyomi (サキヨミ)
 
-**A production-planning assistant for small factories that plan in Excel. Tell it what just happened — "the material for order 1045 is two days late" — and it shows which shipments slip and lays out ways to recover.**
+**A production-planning assistant for small factories that plan in Excel. It plans what is needed this month first and tells whether the plan meets every due date, keeps stock from running out, and what this month's gross profit will be. Tell it what just happened — "the material for order 1045 is two days late" — and it shows which shipments slip and lays out ways to recover, each with its effect on profit.**
 
 日本語版: [README.ja.md](README.ja.md)
 
@@ -12,11 +12,12 @@ In a small job shop, the plan lives in a spreadsheet and the know-how lives in o
 
 ## What it does
 
+- **This month** — open orders are classed from stock and monthly shipments as A (needed this month), B (next month) or C (later), and planned in that order. The tab shows this month's gross profit (revenue of what is finished this month minus material, labor and machine cost), orders that will miss their due date, stock shortages through the end of next month, and overtime and holiday hours, together with the build order, how many people of each crew are on machines each day, and the stock outlook per part.
 - **Progress** — every open order, or every part number, with one chip per process step. Each chip shows how far the step is done, how many pieces and lots sit there, and a warning for lots that have not moved for days. Click the overall column or any chip for the list of work-in-progress lots and when each one is planned to run next.
-- **Gantt** — equipment × time. A deterministic scheduler places every lot and the not-yet-released quantity on the machines, with working hours, weekends, setup time when the part number changes, transfer time between steps and material arrival dates. Bars turn amber or red when an order is close to or past its due date.
-- **Ask Claude** — describe an event in plain Japanese. Claude reads the plan, simulates the event, finds where the work is stuck and tries countermeasures (overtime, holiday work, expediting). It then puts two or three options on the screen. The effect shown on each card is recomputed by the scheduler, not taken from Claude's text.
+- **Gantt** — equipment × time. A deterministic scheduler places every lot and the not-yet-released quantity on the machines, with working hours, weekends, setup time from one shape to another, transfer time between steps, material arrival dates and the people at work in each crew (one person per running machine). Bars turn amber or red when an order is close to or past its due date.
+- **Ask Claude** — describe an event in plain Japanese. Claude reads the plan, simulates the event, finds where the work is stuck and tries countermeasures (overtime, holiday work, expediting, help from another crew). It then puts two or three options on the screen. The effect shown on each card — late orders, this month's gross profit, overtime and holiday hours — is recomputed by the scheduler, not taken from Claude's text.
 - **Decision log** — adopting an option asks for an optional note on why. The change, Claude's reasoning, the trade-off and the planner's note are kept together, so the next person can see how the call was made. Any decision can be undone.
-- **Settings and data** — working hours and days, the due-date vs setup balance, transfer time, setup time per machine, stopping a machine. Data can be exported to and imported from an Excel workbook with four sheets (routes, equipment, open orders, lots).
+- **Settings and data** — working hours and days, the due-date vs setup balance, transfer time, labor rate and overtime and holiday premiums, price, material cost, stock and shipments per part, setup time and hourly cost per machine, stopping a machine, and the usual and daily headcount of each crew. Data can be exported to and imported from an Excel workbook with eight sheets (parts, routes, equipment, setups, crews, attendance, open orders, lots).
 
 ## How Claude is used
 
@@ -24,9 +25,9 @@ The core of the app is a tool-use loop with Claude Opus 5.5 (`claude-opus-5-5`, 
 
 | Tool | What it does |
 | --- | --- |
-| `get_situation` | Today's plan: orders, progress, forecast finish dates, equipment load |
-| `get_order_plan` | When and on which machine each lot of one order is planned |
-| `simulate_changes` | Applies what-if changes and returns how every order's finish date moves |
+| `get_situation` | Today's plan: this month's outlook, parts, setup rules, crews and headcount, equipment load, and each order's class, need date and forecast finish |
+| `get_order_plan` | When and on which machine each lot of one order is planned, including work that waited for a person |
+| `simulate_changes` | Applies what-if changes and returns how every order's finish date, this month's gross profit and overtime and holiday hours move |
 | `present_options` | Shows option cards; the reported event and the countermeasures are kept apart |
 
 The tools run in the browser against the same scheduler that draws the screens, so Claude's numbers always match what the planner sees. The Cloudflare Worker only relays: it fixes the model, system prompt, tool definitions and output length, accepts only user and assistant turns, limits requests per visitor and enables server-side refusal fallbacks. The API key never reaches the browser.

@@ -24,19 +24,22 @@ export type Decision = {
 }
 
 export type SavedState = {
-  version: 2
+  version: 3
   data: PlantData
   settings: Settings
   decisions: Decision[]
   dataSource: 'sample' | 'excel'
 }
 
-// Bumped when the saved shape changes; older saves are replaced by the sample.
-const STORAGE_KEY = 'sakiyomi:v2'
+// Bumped when the saved shape changes. Version 2 had no crews; it is carried
+// over with the sample's crews, or none for data read from Excel. Older saves
+// are replaced by the sample.
+const STORAGE_KEY = 'sakiyomi:v3'
+const PREVIOUS_KEY = 'sakiyomi:v2'
 
 function createInitialState(): SavedState {
   return {
-    version: 2,
+    version: 3,
     data: createSampleData(localToday()),
     settings: createDefaultSettings(),
     decisions: [],
@@ -50,12 +53,31 @@ function load(): SavedState {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as SavedState
-      if (parsed.version === 2) return parsed
+      if (parsed.version === 3) return parsed
+    }
+    const previous = window.localStorage.getItem(PREVIOUS_KEY)
+    if (previous) {
+      const parsed = JSON.parse(previous) as Omit<SavedState, 'version'> & { version: number }
+      if (parsed.version === 2) return fromVersion2(parsed)
     }
   } catch {
     // Fall through to a fresh sample.
   }
   return createInitialState()
+}
+
+function fromVersion2(saved: Omit<SavedState, 'version'>): SavedState {
+  const sample = createSampleData(localToday())
+  const fromSample = saved.dataSource === 'sample'
+  return {
+    ...saved,
+    version: 3,
+    data: {
+      ...saved.data,
+      crews: fromSample ? sample.crews : [],
+      attendance: fromSample ? sample.attendance : [],
+    },
+  }
 }
 
 function save(state: SavedState): void {

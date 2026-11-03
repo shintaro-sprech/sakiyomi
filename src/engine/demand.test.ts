@@ -44,6 +44,8 @@ describe('orderDemands', () => {
       routes: { P: [{ name: '加工', minutesPerPiece: 1 }] },
       equipment: [],
       setupRules: [],
+      crews: [],
+      attendance: [],
       orders: [
         { id: 'o1', partNumber: 'P', quantity: 20, due: '2027-01-31' },
         { id: 'o2', partNumber: 'P', quantity: 10, due: '2027-02-28' },

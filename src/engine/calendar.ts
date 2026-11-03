@@ -1,10 +1,12 @@
-import { addDays, daysBetween, MINUTES_PER_DAY, parseClock, weekday } from './dates'
+import { daysBetween, MINUTES_PER_DAY, parseClock, weekday } from './dates'
 import type { Scenario } from './scenario'
 import type { IsoDate } from './types'
 
 // Working time of one piece of equipment, in minutes from 00:00 of the plan's first day.
 export type Calendar = {
   planStart: IsoDate
+  // Weekday of the plan's first day, so day indexes map to weekdays without date math.
+  firstWeekday: number
   workStart: number
   workEnd: number
   workWeekdays: number[]
@@ -16,12 +18,13 @@ export type Calendar = {
 }
 
 // Work that cannot fit within this many days is treated as unschedulable.
-const SEARCH_LIMIT_DAYS = 366
+export const SEARCH_LIMIT_DAYS = 366
 
 export function equipmentCalendar(scenario: Scenario, equipmentId: string, planStart: IsoDate): Calendar {
   const day = (date: IsoDate) => daysBetween(planStart, date)
   return {
     planStart,
+    firstWeekday: weekday(planStart),
     workStart: parseClock(scenario.settings.workStart),
     workEnd: parseClock(scenario.settings.workEnd),
     workWeekdays: scenario.settings.workWeekdays,
@@ -37,9 +40,13 @@ export function equipmentCalendar(scenario: Scenario, equipmentId: string, planS
   }
 }
 
+// A day of the working week, as opposed to a day off that may be worked as holiday work.
+export function isRegularDay(calendar: Calendar, day: number): boolean {
+  return calendar.workWeekdays.includes((((calendar.firstWeekday + day) % 7) + 7) % 7)
+}
+
 export function workingWindow(calendar: Calendar, day: number): { start: number; end: number } | null {
-  const workday = calendar.workWeekdays.includes(weekday(addDays(calendar.planStart, day)))
-  if (!workday && !calendar.extraDays.includes(day)) return null
+  if (!isRegularDay(calendar, day) && !calendar.extraDays.includes(day)) return null
   if (calendar.down.some((range) => day >= range.from && day <= range.to)) return null
   const extra = calendar.overtime
     .filter((range) => day >= range.from && day <= range.to)
@@ -74,7 +81,7 @@ export function splitWorkingMinutes(
   for (let day = Math.floor(start / MINUTES_PER_DAY); day <= Math.floor((end - 1) / MINUTES_PER_DAY); day += 1) {
     const window = workingWindow(calendar, day)
     if (!window) continue
-    if (!calendar.workWeekdays.includes(weekday(addDays(calendar.planStart, day)))) {
+    if (!isRegularDay(calendar, day)) {
       split.holiday += overlap(window.start, window.end)
       continue
     }
@@ -83,6 +90,19 @@ export function splitWorkingMinutes(
     split.overtime += overlap(regularEnd, window.end)
   }
   return split
+}
+
+// The stretches of working time between start and end, one per day at most.
+export function workingSegments(calendar: Calendar, start: number, end: number): { day: number; start: number; end: number }[] {
+  const segments: { day: number; start: number; end: number }[] = []
+  for (let day = Math.floor(start / MINUTES_PER_DAY); day <= Math.floor((end - 1) / MINUTES_PER_DAY); day += 1) {
+    const window = workingWindow(calendar, day)
+    if (!window) continue
+    const from = Math.max(start, window.start)
+    const to = Math.min(end, window.end)
+    if (from < to) segments.push({ day, start: from, end: to })
+  }
+  return segments
 }
 
 // When work of the given length ends if it starts at start, pausing outside working time.

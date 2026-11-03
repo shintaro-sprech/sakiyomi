@@ -5,7 +5,7 @@ import { compareSchedules } from './compare'
 import { buildScenario, ChangeError, type Change } from './scenario'
 import { schedule } from './scheduler'
 import { createDefaultSettings } from './settings'
-import type { Equipment, Lot, Order, Part, PlantData, Routes, SetupRule, Settings } from './types'
+import type { Attendance, Crew, Equipment, Lot, Order, Part, PlantData, Routes, SetupRule, Settings } from './types'
 
 // 2026-11-03 is a Tuesday and 2026-11-06 a Friday. Default hours are 08:00-17:00, Monday to Friday.
 const TUESDAY = '2026-11-03'
@@ -14,6 +14,8 @@ const FRIDAY = '2026-11-06'
 type PlanInput = {
   parts?: Part[]
   setupRules?: SetupRule[]
+  crews?: Crew[]
+  attendance?: Attendance[]
   routes: Routes
   equipment: Equipment[]
   orders: Order[]
@@ -28,6 +30,8 @@ function plan(input: PlanInput) {
   const data: PlantData = {
     parts: input.parts ?? [],
     setupRules: input.setupRules ?? [],
+    crews: input.crews ?? [],
+    attendance: input.attendance ?? [],
     routes: input.routes,
     equipment: input.equipment,
     orders: input.orders,
@@ -249,6 +253,97 @@ describe('schedule', () => {
     })
 
     expect(result.operations.map((operation) => operation.orderId)).toEqual(['B', 'A'])
+  })
+
+  it('runs no more machines of a crew on a day than its people', () => {
+    const result = plan({
+      routes: { P: oneStep('加工', 60) },
+      equipment: [machine('M1', '加工'), machine('M2', '加工')],
+      crews: [{ name: '加工班', processes: ['加工'], people: 1 }],
+      orders: [order('1', 'P', 9, '2026-11-20'), order('2', 'P', 9, '2026-11-20')],
+    })
+
+    expect(result.operations.map((operation) => [operation.orderId, operation.startAt])).toEqual([
+      ['1', '2026-11-03T08:00'],
+      ['2', '2026-11-04T08:00'],
+    ])
+    expect(result.crewDays[0]).toEqual({ crew: '加工班', date: TUESDAY, people: 1, peak: 1, machines: ['M1'] })
+  })
+
+  it('moves a person to the next machine of the crew when work there ends', () => {
+    const result = plan({
+      routes: { P: [{ name: '加工', minutesPerPiece: 240 }, { name: '仕上げ', minutesPerPiece: 240 }] },
+      equipment: [machine('M1', '加工'), machine('M2', '仕上げ')],
+      crews: [{ name: '班', processes: ['加工', '仕上げ'], people: 1 }],
+      orders: [order('1', 'P', 1, '2026-11-20')],
+    })
+
+    expect(result.operations.map((operation) => [operation.startAt, operation.endAt])).toEqual([
+      ['2026-11-03T08:00', '2026-11-03T12:00'],
+      ['2026-11-03T12:00', '2026-11-03T16:00'],
+    ])
+  })
+
+  it('runs nothing of a crew on a day no one of it is at work', () => {
+    const result = plan({
+      routes: { P: oneStep('加工', 60) },
+      equipment: [machine('M1', '加工')],
+      crews: [{ name: '加工班', processes: ['加工'], people: 1 }],
+      attendance: [{ crew: '加工班', date: TUESDAY, people: 0 }],
+      orders: [order('1', 'P', 1, '2026-11-20')],
+    })
+
+    expect(result.operations[0].startAt).toBe('2026-11-04T08:00')
+  })
+
+  it('finishes sooner with help for the crew', () => {
+    const input = {
+      routes: { P: oneStep('加工', 60) },
+      equipment: [machine('M1', '加工'), machine('M2', '加工')],
+      crews: [{ name: '加工班', processes: ['加工'], people: 1 }],
+      orders: [order('1', 'P', 9, '2026-11-20'), order('2', 'P', 9, '2026-11-20')],
+    }
+    const before = plan(input)
+    const after = plan({
+      ...input,
+      changes: [{ kind: 'headcount', crew: '加工班', from: TUESDAY, to: TUESDAY, people: 2 }],
+    })
+
+    expect(before.orders.map((forecast) => forecast.finishDate)).toEqual([TUESDAY, '2026-11-04'])
+    expect(after.orders.map((forecast) => forecast.finishDate)).toEqual([TUESDAY, TUESDAY])
+  })
+
+  it('gives the last person of a crew to the work needed sooner', () => {
+    const result = plan({
+      // X is out of stock (class A); Y is not needed until long after next month (class C).
+      parts: [part('X', '丸物', 0, 30), part('Y', '丸物')],
+      routes: { X: oneStep('仕上げ', 60), Y: oneStep('加工', 60) },
+      equipment: [machine('M1', '加工'), machine('M2', '仕上げ')],
+      crews: [{ name: '班', processes: ['加工', '仕上げ'], people: 1 }],
+      // The short C work would end first and take the only person without the crew-wide check.
+      orders: [order('c', 'Y', 1, '2027-02-26'), order('a', 'X', 9, '2026-11-30')],
+    })
+    const startOf = (orderId: string) => result.operations.find((operation) => operation.orderId === orderId)?.startAt
+
+    expect(startOf('a')).toBe('2026-11-03T08:00')
+    expect(startOf('c')).toBe('2026-11-04T08:00')
+    // M1 itself was free on Tuesday; only the person was not.
+    expect(result.operations.find((operation) => operation.orderId === 'c')?.waitedForPeople).toBe(true)
+  })
+
+  it('lets holiday work run with its own person', () => {
+    const result = plan({
+      start: FRIDAY,
+      routes: { P: oneStep('加工', 60) },
+      equipment: [machine('M1', '加工')],
+      crews: [{ name: '加工班', processes: ['加工'], people: 1 }],
+      attendance: [{ crew: '加工班', date: FRIDAY, people: 0 }],
+      orders: [order('1', 'P', 9, '2026-11-20')],
+      changes: [{ kind: 'holidayWork', equipmentId: 'M1', date: '2026-11-07' }],
+    })
+
+    expect(result.operations[0].startAt).toBe('2026-11-07T08:00')
+    expect(result.operations[0].endAt).toBe('2026-11-07T17:00')
   })
 
   it('gives the same plan for the same input', () => {

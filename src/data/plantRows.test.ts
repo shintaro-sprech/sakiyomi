@@ -22,6 +22,24 @@ describe('plant rows', () => {
     expect(data?.orders[1].due).toBe('2026-11-21')
   })
 
+  it('plans without people limits when the workbook has no crews', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    delete rows[SHEETS.crews]
+    delete rows[SHEETS.attendance]
+    const { data, errors } = parsePlantRows(rows)
+
+    expect(errors).toEqual([])
+    expect(data?.crews).toEqual([])
+  })
+
+  it('refuses a process in two crews', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    rows[SHEETS.crews][1][COLUMNS.crews.processes] = '切削、溶接'
+    const { errors } = parsePlantRows(rows)
+
+    expect(errors).toContain('班の3行目：工程「溶接」は班「板金班」にもあります')
+  })
+
   it('reports every problem with its sheet and row', () => {
     const rows = toPlantRows(createSampleData('2026-11-03'))
     rows[SHEETS.orders][0][COLUMNS.orders.partNumber] = 'Z-999'

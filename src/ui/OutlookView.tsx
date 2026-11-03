@@ -1,11 +1,13 @@
 import { Badge, Group, Paper, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core'
+import { IconUser, IconUserFilled } from '@tabler/icons-react'
 import { useMemo } from 'react'
 
 import { dailyUsage, orderDemands, type PriorityClass } from '../engine/demand'
 import { monthlyOutlook } from '../engine/economics'
 import type { Plan } from '../engine/plan'
+import type { CrewDay } from '../engine/scheduler'
 import type { IsoDate } from '../engine/types'
-import { formatYen, shortDate, shortDateTime } from './format'
+import { formatYen, shortDate, shortDateTime, weekdayName } from './format'
 
 type Props = {
   plan: Plan
@@ -14,6 +16,8 @@ type Props = {
 
 const CLASS_LABELS: Record<PriorityClass, string> = { A: 'A 今月', B: 'B 来月', C: 'C 以降' }
 const CLASS_COLORS: Record<PriorityClass, string> = { A: 'red', B: 'orange', C: 'gray' }
+const PERSON_SIZE = 16
+const CREW_COLUMN_WIDTH = 96
 
 export function ClassBadge({ value }: { value: PriorityClass }) {
   return (
@@ -32,6 +36,13 @@ export function OutlookView({ plan, today }: Props) {
   const rows = [...demands].sort(
     (a, b) => a.priorityClass.localeCompare(b.priorityClass) || a.needBy.localeCompare(b.needBy),
   )
+  const crewDays = plan.result.crewDays
+  const crewDates = [...new Set(crewDays.map((day) => day.date))]
+  // Each day is as wide as its largest crew's marks need, so one busy day does not widen the rest.
+  const tableWidth = crewDates.reduce((width, date) => {
+    const people = Math.max(0, ...crewDays.filter((day) => day.date === date).map((day) => day.people))
+    return width + Math.max(48, people * PERSON_SIZE + 12)
+  }, CREW_COLUMN_WIDTH)
   const premium = Math.round(
     (settings.laborRate * (outlook.overtimeHours * settings.overtimePremium + outlook.holidayHours * settings.holidayPremium)),
   )
@@ -126,6 +137,52 @@ export function OutlookView({ plan, today }: Props) {
         </Paper>
       </section>
 
+      {data.crews.length > 0 && (
+        <section>
+          <Title order={2} size="h4" mb="sm">
+            人の割り当て
+          </Title>
+          <Paper withBorder>
+            <Table.ScrollContainer minWidth={tableWidth}>
+              <Table verticalSpacing={6} horizontalSpacing={6}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th className="sticky-col" w={CREW_COLUMN_WIDTH}>
+                      班
+                    </Table.Th>
+                    {crewDates.map((date) => (
+                      <Table.Th key={date} ta="center" className="tabular">
+                        {shortDate(date)}
+                        <Text span display="block" size="xs" c="dimmed">
+                          {weekdayName(date)}
+                        </Text>
+                      </Table.Th>
+                    ))}
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {data.crews.map((crew) => (
+                    <Table.Tr key={crew.name}>
+                      <Table.Th scope="row" className="sticky-col" style={{ whiteSpace: 'nowrap' }}>
+                        {crew.name}
+                      </Table.Th>
+                      {crewDates.map((date) => {
+                        const day = crewDays.find((item) => item.crew === crew.name && item.date === date)
+                        return (
+                          <Table.Td key={date} ta="center">
+                            {day && <People day={day} />}
+                          </Table.Td>
+                        )
+                      })}
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          </Paper>
+        </section>
+      )}
+
       <section>
         <Title order={2} size="h4" mb="sm">
           在庫の見通し
@@ -177,6 +234,36 @@ export function OutlookView({ plan, today }: Props) {
         </Paper>
       </section>
     </Stack>
+  )
+}
+
+// One mark per person at work: filled while running a machine at the busiest moment of the day.
+function People({ day }: { day: CrewDay }) {
+  if (day.people === 0) {
+    return (
+      <Text span size="sm" c="dimmed" role="img" aria-label="出勤なし">
+        0
+      </Text>
+    )
+  }
+  const full = day.peak >= day.people
+  return (
+    <Group
+      gap={0}
+      justify="center"
+      wrap="nowrap"
+      role="img"
+      aria-label={`${day.people}人中${day.peak}人が設備に付く`}
+      className={full ? 'people is-full' : 'people'}
+    >
+      {Array.from({ length: day.people }, (_, index) =>
+        index < day.peak ? (
+          <IconUserFilled key={index} size={PERSON_SIZE} className="person-busy" aria-hidden="true" />
+        ) : (
+          <IconUser key={index} size={PERSON_SIZE} className="person-free" aria-hidden="true" />
+        ),
+      )}
+    </Group>
   )
 }
 

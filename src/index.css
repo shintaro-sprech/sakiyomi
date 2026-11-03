@@ -61,6 +61,13 @@
   outline-color: var(--sk-focus);
 }
 
+/* Mantine's inputs show focus as a border in the primary color, and teal-9 is under
+   3:1 on dark fields (WCAG 1.4.11). The selector outranks Mantine's own instead of
+   relying on stylesheet order, which differs between dev and build. */
+:root[data-mantine-color-scheme='dark'] .mantine-Input-wrapper[data-variant] {
+  --input-bd-focus: var(--sk-focus);
+}
+
 /* Elements that receive focus from code (banner, headings, results) get the same 2px ring. */
 [tabindex='-1']:focus-visible {
   outline: 2px solid var(--sk-focus);
@@ -83,6 +90,42 @@
 
 .tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* First column that stays in view while a wide table scrolls sideways.
+   Above the number inputs' step buttons, which Mantine lifts to z-index 1. */
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--mantine-color-body);
+  /* A border would stay behind with the collapsed table borders; a shadow moves with the cell. */
+  box-shadow: inset -1px 0 0 var(--sk-border);
+}
+
+/* People of a crew on a day: teal while someone is free, orange when all are on machines. */
+.people .person-busy {
+  color: var(--mantine-color-teal-8);
+}
+
+.people.is-full .person-busy {
+  color: var(--mantine-color-orange-8);
+}
+
+.people .person-free {
+  color: var(--mantine-color-gray-6);
+}
+
+:root[data-mantine-color-scheme='dark'] .people .person-busy {
+  color: var(--mantine-color-teal-5);
+}
+
+:root[data-mantine-color-scheme='dark'] .people.is-full .person-busy {
+  color: var(--mantine-color-orange-5);
+}
+
+:root[data-mantine-color-scheme='dark'] .people .person-free {
+  color: var(--mantine-color-dark-2);
 }
 
 /* Progress table */

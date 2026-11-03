@@ -1,4 +1,4 @@
-import type { Equipment, IsoDate, Lot, Order, Part, PlantData, Routes, SetupRule } from '../engine/types'
+import type { Attendance, Crew, Equipment, IsoDate, Lot, Order, Part, PlantData, Routes, SetupRule } from '../engine/types'
 
 // Sheet and column names of the Excel workbook. People fill these in, so they are Japanese.
 export const SHEETS = {
@@ -6,6 +6,8 @@ export const SHEETS = {
   routes: '工程表',
   equipment: '設備',
   setupRules: '段取り',
+  crews: '班',
+  attendance: '出勤',
   orders: '注残',
   lots: 'Lot',
 } as const
@@ -22,17 +24,22 @@ export const COLUMNS = {
   routes: { partNumber: '型番', order: '順番', step: '工程名', minutes: '1個あたりの分' },
   equipment: { id: '設備ID', name: '設備名', process: '担当工程', setup: '段取りの分', hourlyCost: '1時間の費用' },
   setupRules: { process: '工程名', fromShape: '前の形状', toShape: '次の形状', minutes: '段取りの分' },
+  crews: { name: '班名', processes: '担当工程', people: '人数' },
+  attendance: { crew: '班名', date: '日付', people: '人数' },
   orders: { id: '注番', partNumber: '型番', quantity: '数量', due: '納期', materialOn: '材料入荷日' },
   lots: { id: 'Lot番号', orderId: '注番', quantity: '数量', step: '今の工程番号', arrivedOn: 'その工程に着いた日' },
 } as const
 
 export const FINISHED = '完了'
 
+// A crew's processes share one cell, written 切断、曲げ、溶接.
+const PROCESS_SEPARATOR = '、'
+
 export type Row = Record<string, unknown>
 export type SheetRows = Record<string, Row[]>
 
 export function toPlantRows(data: PlantData): SheetRows {
-  const { parts, routes, equipment, setupRules, orders, lots } = COLUMNS
+  const { parts, routes, equipment, setupRules, crews, attendance, orders, lots } = COLUMNS
   return {
     [SHEETS.parts]: data.parts.map((part) => ({
       [parts.partNumber]: part.partNumber,
@@ -62,6 +69,16 @@ export function toPlantRows(data: PlantData): SheetRows {
       [setupRules.fromShape]: rule.fromShape,
       [setupRules.toShape]: rule.toShape,
       [setupRules.minutes]: rule.minutes,
+    })),
+    [SHEETS.crews]: data.crews.map((crew) => ({
+      [crews.name]: crew.name,
+      [crews.processes]: crew.processes.join(PROCESS_SEPARATOR),
+      [crews.people]: crew.people,
+    })),
+    [SHEETS.attendance]: data.attendance.map((entry) => ({
+      [attendance.crew]: entry.crew,
+      [attendance.date]: entry.date,
+      [attendance.people]: entry.people,
     })),
     [SHEETS.orders]: data.orders.map((order) => ({
       [orders.id]: order.id,
@@ -93,6 +110,8 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
     if (!rows) errors.push(`シート「${sheet}」がありません`)
     return rows ?? []
   }
+  // Crews and attendance were added later; a workbook without them plans without people limits.
+  const optionalRowsOf = (sheet: string) => sheets[sheet] ?? []
   // Row 1 holds the headers, so the first data row is row 2.
   const at = (sheet: string, index: number) => `${sheet}の${index + 2}行目`
 
@@ -163,6 +182,44 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
     setupRules.push({ ...rule, minutes })
   })
 
+  const crews: Crew[] = []
+  optionalRowsOf(SHEETS.crews).forEach((row, index) => {
+    const c = COLUMNS.crews
+    const where = at(SHEETS.crews, index)
+    const name = text(row[c.name])
+    const processes = text(row[c.processes])
+      .split(/[、,，・\s]+/)
+      .filter((process) => process !== '')
+    const people = number(row[c.people])
+    if (!name || processes.length === 0) return errors.push(`${where}：班名と担当工程を入れてください`)
+    if (crews.some((crew) => crew.name === name)) return errors.push(`${where}：班名「${name}」が重複しています`)
+    if (people === null || !Number.isInteger(people) || people < 0) return errors.push(`${where}：人数は0以上の整数にしてください`)
+    for (const process of processes) {
+      const other = crews.find((crew) => crew.processes.includes(process))
+      if (other) return errors.push(`${where}：工程「${process}」は班「${other.name}」にもあります`)
+      if (!equipment.some((item) => item.process === process)) {
+        return errors.push(`${where}：工程「${process}」を担当する設備がありません`)
+      }
+    }
+    crews.push({ name, processes, people })
+  })
+
+  const attendance: Attendance[] = []
+  optionalRowsOf(SHEETS.attendance).forEach((row, index) => {
+    const c = COLUMNS.attendance
+    const where = at(SHEETS.attendance, index)
+    const crew = text(row[c.crew])
+    const day = date(row[c.date])
+    const people = number(row[c.people])
+    if (!crews.some((candidate) => candidate.name === crew)) return errors.push(`${where}：班「${crew}」が班のシートにありません`)
+    if (!day) return errors.push(`${where}：日付を入れてください`)
+    if (attendance.some((entry) => entry.crew === crew && entry.date === day)) {
+      return errors.push(`${where}：班「${crew}」の${day}が重複しています`)
+    }
+    if (people === null || !Number.isInteger(people) || people < 0) return errors.push(`${where}：人数は0以上の整数にしてください`)
+    attendance.push({ crew, date: day, people })
+  })
+
   const orders: Order[] = []
   rowsOf(SHEETS.orders).forEach((row, index) => {
     const c = COLUMNS.orders
@@ -220,7 +277,7 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
 
   return errors.length > 0
     ? { data: null, errors }
-    : { data: { parts, routes, equipment, setupRules, orders, lots }, errors }
+    : { data: { parts, routes, equipment, setupRules, crews, attendance, orders, lots }, errors }
 }
 
 function text(value: unknown): string {

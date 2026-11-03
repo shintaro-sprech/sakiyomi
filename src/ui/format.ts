@@ -1,4 +1,5 @@
-import type { IsoDate } from '../engine/types'
+import { addDays, weekday } from '../engine/dates'
+import type { IsoDate, Settings } from '../engine/types'
 
 // 2026-11-12 -> 11/12
 export function shortDate(date: IsoDate | null | undefined): string {
@@ -33,4 +34,17 @@ export function signedYen(value: number): string {
 
 export function signedHours(value: number): string {
   return `${value > 0 ? '+' : '−'}${Math.abs(value)}時間`
+}
+
+const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土']
+
+export function weekdayName(date: IsoDate): string {
+  return WEEKDAY_NAMES[weekday(date)]
+}
+
+// Working days from today within the plan horizon.
+export function workingDays(today: IsoDate, settings: Settings): IsoDate[] {
+  return Array.from({ length: settings.horizonDays }, (_, day) => addDays(today, day)).filter((date) =>
+    settings.workWeekdays.includes(weekday(date)),
+  )
 }

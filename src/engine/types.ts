@@ -43,6 +43,23 @@ export type SetupRule = {
   minutes: number
 }
 
+// The people who run the machines of a group of processes (a crew, 班).
+// Each running machine needs one of them, so on a regular working day no more
+// machines of the crew run at once than people are at work.
+export type Crew = {
+  name: string
+  processes: string[]
+  // People at work on a regular working day.
+  people: number
+}
+
+// People of a crew at work on one day, when it is not the usual number.
+export type Attendance = {
+  crew: string
+  date: IsoDate
+  people: number
+}
+
 // An open manufacturing order (製造注残).
 export type Order = {
   id: string
@@ -69,6 +86,9 @@ export type PlantData = {
   routes: Routes
   equipment: Equipment[]
   setupRules: SetupRule[]
+  // Processes in no crew are not limited by people.
+  crews: Crew[]
+  attendance: Attendance[]
   orders: Order[]
   lots: Lot[]
 }
