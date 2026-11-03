@@ -1,13 +1,22 @@
 import { Fragment, type ReactNode } from 'react'
 
 // Renders the small part of Markdown Claude tends to use in short replies:
-// paragraphs, "- " lists and **bold**.
+// paragraphs, "- " and "1. " lists, and **bold**.
 export function RichText({ text }: { text: string }) {
   const blocks = text.trim().split(/\n{2,}/)
   return (
     <>
       {blocks.map((block, index) => {
         const lines = block.split('\n')
+        if (lines.every((line) => /^\s*\d+[.)]\s/.test(line))) {
+          return (
+            <ol key={index}>
+              {lines.map((line, lineIndex) => (
+                <li key={lineIndex}>{inline(line.replace(/^\s*\d+[.)]\s/, ''))}</li>
+              ))}
+            </ol>
+          )
+        }
         if (lines.every((line) => /^\s*[-・*]\s/.test(line))) {
           return (
             <ul key={index}>
