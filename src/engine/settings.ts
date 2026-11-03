@@ -10,5 +10,8 @@ export function createDefaultSettings(): Settings {
     stoppedEquipment: [],
     transferMinutes: 60,
     stagnationWarningDays: 3,
+    laborRate: 2500,
+    overtimePremium: 0.25,
+    holidayPremium: 0.35,
   }
 }

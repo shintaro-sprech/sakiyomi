@@ -24,18 +24,19 @@ export type Decision = {
 }
 
 export type SavedState = {
-  version: 1
+  version: 2
   data: PlantData
   settings: Settings
   decisions: Decision[]
   dataSource: 'sample' | 'excel'
 }
 
-const STORAGE_KEY = 'sakiyomi:v1'
+// Bumped when the saved shape changes; older saves are replaced by the sample.
+const STORAGE_KEY = 'sakiyomi:v2'
 
 function createInitialState(): SavedState {
   return {
-    version: 1,
+    version: 2,
     data: createSampleData(localToday()),
     settings: createDefaultSettings(),
     decisions: [],
@@ -49,7 +50,7 @@ function load(): SavedState {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as SavedState
-      if (parsed.version === 1) return parsed
+      if (parsed.version === 2) return parsed
     }
   } catch {
     // Fall through to a fresh sample.

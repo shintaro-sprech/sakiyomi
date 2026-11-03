@@ -18,14 +18,17 @@ const changeSchema = {
     'overtime: equipmentId, from, to, minutesPerDay（その期間の稼働日に、終業を何分延ばすか）',
     'holidayWork: equipmentId, date（休日に通常の時間で動かす）',
     'expedite: orderId（その注番を最優先で流す）',
+    'hold: orderId, until（その日まで着手しない。余力の注番を来月に回すときなど）',
+    'addOrder: partNumber, quantity, due（製造注残を追加する。在庫切れを防ぐ補充など）',
     '日付は YYYY-MM-DD。設備は equipmentId（例: MC-1）で指定する。',
   ].join('\n'),
   properties: {
     kind: {
       type: 'string',
-      enum: ['materialDelay', 'quantity', 'equipmentDown', 'overtime', 'holidayWork', 'expedite'],
+      enum: ['materialDelay', 'quantity', 'equipmentDown', 'overtime', 'holidayWork', 'expedite', 'hold', 'addOrder'],
     },
     orderId: { type: 'string' },
+    partNumber: { type: 'string' },
     equipmentId: { type: 'string' },
     days: { type: 'integer' },
     quantity: { type: 'integer' },
@@ -33,6 +36,8 @@ const changeSchema = {
     from: { type: 'string' },
     to: { type: 'string' },
     date: { type: 'string' },
+    until: { type: 'string' },
+    due: { type: 'string' },
   },
   required: ['kind'],
 } as const
@@ -41,7 +46,7 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: TOOL_NAMES.getSituation,
     description:
-      '今日の日付、稼働の設定、設備とその負荷、型番ごとの工程、注番ごとの進み具合と完成見込みを返す。担当者が採用済みの変更も含めた、今の計画の状態。',
+      '今の計画の状態を返す。今月の見通し（売上・材料費・労務費・設備費・粗利・残業と休日出勤の時間・遅れる注番・来月末までの欠品）、品目（形状・売価・材料費・在庫・月間の出荷数）、段取り表、設備と負荷、型番ごとの工程、注番ごとの区分（A 今月必要／B 来月必要／C それ以降）・必要日・進み具合・完成見込み。担当者が採用済みの変更も含む。',
     input_schema: { type: 'object', properties: {} },
   },
   {
@@ -57,7 +62,7 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: TOOL_NAMES.simulateChanges,
     description:
-      '変更を今の計画に当てて計画を作り直し、完成見込みがどう動くかを返す。計画そのものは変えない。何度でも試せる。',
+      '変更を今の計画に当てて全注番を組み直し、完成見込みの変化と、今月の粗利・残業・休日出勤の増減、変更後の今月の見通しを返す。計画そのものは変えない。何度でも試せる。',
     input_schema: {
       type: 'object',
       properties: { changes: { type: 'array', items: changeSchema } },

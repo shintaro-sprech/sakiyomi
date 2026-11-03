@@ -61,6 +61,30 @@ export function nextWorkingMinute(calendar: Calendar, t: number): number | null 
   return null
 }
 
+// Splits the working time between start and end into regular hours, overtime
+// (past the end of a regular day) and holiday work (on a day off), in minutes.
+export function splitWorkingMinutes(
+  calendar: Calendar,
+  start: number,
+  end: number,
+): { regular: number; overtime: number; holiday: number } {
+  const split = { regular: 0, overtime: 0, holiday: 0 }
+  if (end <= start) return split
+  const overlap = (from: number, to: number) => Math.max(0, Math.min(end, to) - Math.max(start, from))
+  for (let day = Math.floor(start / MINUTES_PER_DAY); day <= Math.floor((end - 1) / MINUTES_PER_DAY); day += 1) {
+    const window = workingWindow(calendar, day)
+    if (!window) continue
+    if (!calendar.workWeekdays.includes(weekday(addDays(calendar.planStart, day)))) {
+      split.holiday += overlap(window.start, window.end)
+      continue
+    }
+    const regularEnd = day * MINUTES_PER_DAY + calendar.workEnd
+    split.regular += overlap(window.start, Math.min(window.end, regularEnd))
+    split.overtime += overlap(regularEnd, window.end)
+  }
+  return split
+}
+
 // When work of the given length ends if it starts at start, pausing outside working time.
 export function addWorkingMinutes(calendar: Calendar, start: number, minutes: number): number | null {
   if (minutes === 0) return start

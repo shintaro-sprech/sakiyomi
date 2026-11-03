@@ -2,9 +2,8 @@ import { Badge, Button, Card, Group, List, Stack, Text, Textarea } from '@mantin
 import { IconCheck, IconEye, IconEyeOff } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 
-import type { ProposedOption } from '../assistant/tools'
-import type { ScheduleComparison } from '../engine/compare'
-import { shortDate } from './format'
+import type { Effect, ProposedOption } from '../assistant/tools'
+import { shortDate, signedHours, signedYen } from './format'
 
 type Props = {
   option: ProposedOption
@@ -54,7 +53,7 @@ export function OptionCard({ option, state, previewing, onPreview, onAdopt }: Pr
             ))}
           </List>
         )}
-        <EffectSummary comparison={option.comparison} />
+        <EffectSummary effect={option.effect} />
         <dl className="option-notes">
           <dt>理由</dt>
           <dd>{option.reason}</dd>
@@ -107,19 +106,40 @@ export function OptionCard({ option, state, previewing, onPreview, onAdopt }: Pr
   )
 }
 
-export function EffectSummary({ comparison }: { comparison: ScheduleComparison }) {
+export function EffectSummary({ effect }: { effect: Effect }) {
+  const { comparison } = effect
   return (
     <Stack gap={4}>
-      <Badge
-        variant="outline"
-        color={comparison.lateAfter > 0 ? 'red' : 'teal'}
-        size="lg"
-        radius="sm"
-        w="fit-content"
-        className="tabular"
-      >
-        遅れ {comparison.lateBefore} → {comparison.lateAfter}件
-      </Badge>
+      <Group gap={6}>
+        <Badge
+          variant="outline"
+          color={comparison.lateAfter > 0 ? 'red' : 'teal'}
+          size="lg"
+          radius="sm"
+          className="tabular"
+        >
+          遅れ {comparison.lateBefore} → {comparison.lateAfter}件
+        </Badge>
+        <Badge
+          variant="outline"
+          color={effect.grossProfitDelta < 0 ? 'red' : 'teal'}
+          size="lg"
+          radius="sm"
+          className="tabular"
+        >
+          今月の粗利 {signedYen(effect.grossProfitDelta)}
+        </Badge>
+        {effect.overtimeHoursDelta !== 0 && (
+          <Badge variant="outline" color="gray" size="lg" radius="sm" className="tabular">
+            残業 {signedHours(effect.overtimeHoursDelta)}
+          </Badge>
+        )}
+        {effect.holidayHoursDelta !== 0 && (
+          <Badge variant="outline" color="gray" size="lg" radius="sm" className="tabular">
+            休日出勤 {signedHours(effect.holidayHoursDelta)}
+          </Badge>
+        )}
+      </Group>
       {comparison.shifted.map((shift) => (
         <Text
           key={shift.orderId}

@@ -17,6 +17,7 @@ import {
 import { useDisclosure, useMediaQuery, useReducedMotion } from '@mantine/hooks'
 import {
   IconAdjustmentsHorizontal,
+  IconCalendarStats,
   IconChartBar,
   IconClipboardList,
   IconLayoutKanban,
@@ -32,12 +33,14 @@ import { useAppState } from './state/store'
 import { ChatPanel } from './ui/ChatPanel'
 import { DecisionsView } from './ui/DecisionsView'
 import { GanttView } from './ui/GanttView'
+import { OutlookView } from './ui/OutlookView'
 import { ProgressView } from './ui/ProgressView'
 import { SettingsView } from './ui/SettingsView'
 
-type Tab = 'progress' | 'gantt' | 'decisions' | 'settings'
+type Tab = 'outlook' | 'progress' | 'gantt' | 'decisions' | 'settings'
 
 const TABS: { value: Tab; label: string; icon: ReactNode }[] = [
+  { value: 'outlook', label: '今月の計画', icon: <IconCalendarStats size={16} /> },
   { value: 'progress', label: '進捗', icon: <IconChartBar size={16} /> },
   { value: 'gantt', label: 'ガント', icon: <IconLayoutKanban size={16} /> },
   { value: 'decisions', label: '判断の記録', icon: <IconClipboardList size={16} /> },
@@ -50,7 +53,7 @@ function App() {
   // Below xl the panel would squeeze the progress table, and below md it covers the screen.
   const wide = useMediaQuery(`(min-width: ${theme.breakpoints.xl})`, true, { getInitialValueInEffect: false })
   const medium = useMediaQuery(`(min-width: ${theme.breakpoints.md})`, true, { getInitialValueInEffect: false })
-  const [tab, setTab] = useState<Tab>('progress')
+  const [tab, setTab] = useState<Tab>('outlook')
   const [preview, setPreview] = useState<ProposedOption | null>(null)
   const [chatOpen, setChatOpen] = useState(wide)
   const [navOpened, nav] = useDisclosure(false)
@@ -215,6 +218,7 @@ function App() {
             </Group>
           </Alert>
         )}
+        {tab === 'outlook' && <OutlookView plan={plan} today={planState.today} />}
         {tab === 'progress' && (
           <ProgressView plan={plan} today={planState.today} warningDays={saved.settings.stagnationWarningDays} />
         )}

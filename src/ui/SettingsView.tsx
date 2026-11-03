@@ -25,6 +25,15 @@ import { useState } from 'react'
 import type { Settings } from '../engine/types'
 import type { AppState } from '../state/store'
 
+type PartNumberKey = 'price' | 'materialCost' | 'stock' | 'monthlyUsage'
+
+const PART_NUMBERS: { key: PartNumberKey; label: string; suffix: string }[] = [
+  { key: 'price', label: '売価', suffix: ' 円' },
+  { key: 'materialCost', label: '材料費', suffix: ' 円' },
+  { key: 'stock', label: '在庫', suffix: ' 個' },
+  { key: 'monthlyUsage', label: '月間の出荷数', suffix: ' 個' },
+]
+
 const WEEKDAYS = [
   { day: 1, label: '月' },
   { day: 2, label: '火' },
@@ -62,11 +71,21 @@ export function SettingsView({ app }: { app: AppState }) {
       stopped ? [...settings.stoppedEquipment, id] : settings.stoppedEquipment.filter((item) => item !== id),
     )
 
-  const setSetup = (id: string, value: number | string) => {
+  const setEquipmentNumber = (id: string, key: 'setupMinutes' | 'hourlyCost', value: number | string) => {
     if (typeof value !== 'number') return
     app.updateData({
       ...data,
-      equipment: data.equipment.map((item) => (item.id === id ? { ...item, setupMinutes: clamp(value, 0, 24 * 60) } : item)),
+      equipment: data.equipment.map((item) => (item.id === id ? { ...item, [key]: clamp(value, 0, 1_000_000) } : item)),
+    })
+  }
+
+  const setPartNumber = (partNumber: string, key: PartNumberKey, value: number | string) => {
+    if (typeof value !== 'number') return
+    app.updateData({
+      ...data,
+      parts: data.parts.map((part) =>
+        part.partNumber === partNumber ? { ...part, [key]: clamp(value, 0, 100_000_000) } : part,
+      ),
     })
   }
 
@@ -172,6 +191,37 @@ export function SettingsView({ app }: { app: AppState }) {
                 onChange={setNumber('stagnationWarningDays', 1, 60)}
               />
             </Grid.Col>
+            <Grid.Col span={{ base: 6, lg: 3 }}>
+              <NumberInput
+                label="労務費（1人1時間）"
+                suffix=" 円"
+                thousandSeparator=","
+                min={0}
+                step={100}
+                value={settings.laborRate}
+                onChange={(value) => typeof value === 'number' && set('laborRate', clamp(value, 0, 100000))}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 6, lg: 3 }}>
+              <NumberInput
+                label="残業の割増"
+                suffix=" %"
+                min={0}
+                max={100}
+                value={Math.round(settings.overtimePremium * 100)}
+                onChange={(value) => typeof value === 'number' && set('overtimePremium', clamp(value, 0, 100) / 100)}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 6, lg: 3 }}>
+              <NumberInput
+                label="休日出勤の割増"
+                suffix=" %"
+                min={0}
+                max={100}
+                value={Math.round(settings.holidayPremium * 100)}
+                onChange={(value) => typeof value === 'number' && set('holidayPremium', clamp(value, 0, 100) / 100)}
+              />
+            </Grid.Col>
           </Grid>
           <Stack gap={6} mt="xl">
             <Text size="sm" fw={500}>
@@ -202,6 +252,50 @@ export function SettingsView({ app }: { app: AppState }) {
 
       <section>
         <Title order={2} size="h4" mb="sm">
+          品目
+        </Title>
+        <Paper withBorder>
+          <Table.ScrollContainer minWidth={720}>
+            <Table verticalSpacing="xs" horizontalSpacing={6}>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>型番</Table.Th>
+                  <Table.Th>形状</Table.Th>
+                  {PART_NUMBERS.map((column) => (
+                    <Table.Th key={column.key} w={130}>
+                      {column.label}
+                    </Table.Th>
+                  ))}
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {data.parts.map((part) => (
+                  <Table.Tr key={part.partNumber}>
+                    <Table.Td>{part.partNumber}</Table.Td>
+                    <Table.Td>{part.shape}</Table.Td>
+                    {PART_NUMBERS.map((column) => (
+                      <Table.Td key={column.key}>
+                        <NumberInput
+                          size="xs"
+                          suffix={column.suffix}
+                          thousandSeparator=","
+                          min={0}
+                          value={part[column.key]}
+                          onChange={(value) => setPartNumber(part.partNumber, column.key, value)}
+                          aria-label={`${part.partNumber}の${column.label}`}
+                        />
+                      </Table.Td>
+                    ))}
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Table.ScrollContainer>
+        </Paper>
+      </section>
+
+      <section>
+        <Title order={2} size="h4" mb="sm">
           設備
         </Title>
         <Paper withBorder>
@@ -210,8 +304,9 @@ export function SettingsView({ app }: { app: AppState }) {
               <Table.Tr>
                 <Table.Th>設備</Table.Th>
                 <Table.Th>担当工程</Table.Th>
-                <Table.Th w={150}>段取り</Table.Th>
-                <Table.Th w={90}>止める</Table.Th>
+                <Table.Th w={130}>段取り</Table.Th>
+                <Table.Th w={130}>1時間の費用</Table.Th>
+                <Table.Th w={80}>止める</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -227,8 +322,20 @@ export function SettingsView({ app }: { app: AppState }) {
                       max={24 * 60}
                       step={5}
                       value={equipment.setupMinutes}
-                      onChange={(value) => setSetup(equipment.id, value)}
+                      onChange={(value) => setEquipmentNumber(equipment.id, 'setupMinutes', value)}
                       aria-label={`${equipment.name}の段取り時間`}
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <NumberInput
+                      size="xs"
+                      suffix=" 円"
+                      thousandSeparator=","
+                      min={0}
+                      step={100}
+                      value={equipment.hourlyCost}
+                      onChange={(value) => setEquipmentNumber(equipment.id, 'hourlyCost', value)}
+                      aria-label={`${equipment.name}の1時間の費用`}
                     />
                   </Table.Td>
                   <Table.Td>

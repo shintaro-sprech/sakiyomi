@@ -5,13 +5,15 @@ import { compareSchedules } from './compare'
 import { buildScenario, ChangeError, type Change } from './scenario'
 import { schedule } from './scheduler'
 import { createDefaultSettings } from './settings'
-import type { Equipment, Lot, Order, PlantData, Routes, Settings } from './types'
+import type { Equipment, Lot, Order, Part, PlantData, Routes, SetupRule, Settings } from './types'
 
 // 2026-11-03 is a Tuesday and 2026-11-06 a Friday. Default hours are 08:00-17:00, Monday to Friday.
 const TUESDAY = '2026-11-03'
 const FRIDAY = '2026-11-06'
 
 type PlanInput = {
+  parts?: Part[]
+  setupRules?: SetupRule[]
   routes: Routes
   equipment: Equipment[]
   orders: Order[]
@@ -24,6 +26,8 @@ type PlanInput = {
 function plan(input: PlanInput) {
   const start = input.start ?? TUESDAY
   const data: PlantData = {
+    parts: input.parts ?? [],
+    setupRules: input.setupRules ?? [],
     routes: input.routes,
     equipment: input.equipment,
     orders: input.orders,
@@ -34,7 +38,11 @@ function plan(input: PlanInput) {
 }
 
 function machine(id: string, process: string, setupMinutes = 0): Equipment {
-  return { id, name: id, process, setupMinutes }
+  return { id, name: id, process, setupMinutes, hourlyCost: 0 }
+}
+
+function part(partNumber: string, shape: string, stock = 1000, monthlyUsage = 0): Part {
+  return { partNumber, shape, price: 0, materialCost: 0, stock, monthlyUsage }
 }
 
 function order(id: string, partNumber: string, quantity: number, due: string, materialOn?: string): Order {
@@ -182,6 +190,54 @@ describe('schedule', () => {
     })
 
     expect(result.operations[0].endAt).toBe('2026-11-07T09:00')
+  })
+
+  it('takes setup time from the shape-to-shape rules', () => {
+    const result = plan({
+      settings: { dueWeight: 1 },
+      parts: [part('R1', '丸物'), part('R2', '丸物'), part('S1', '角物')],
+      setupRules: [{ process: '加工', fromShape: '丸物', toShape: '丸物', minutes: 15 }],
+      routes: { R1: oneStep('加工', 60), R2: oneStep('加工', 60), S1: oneStep('加工', 60) },
+      equipment: [machine('M1', '加工', 50)],
+      orders: [
+        order('1', 'R1', 1, '2026-11-10'),
+        order('2', 'R1', 1, '2026-11-11'),
+        order('3', 'R2', 1, '2026-11-12'),
+        order('4', 'S1', 1, '2026-11-13'),
+      ],
+    })
+
+    expect(result.operations.map((operation) => [operation.orderId, operation.setupMinutes])).toEqual([
+      ['1', 0],
+      ['2', 0],
+      ['3', 15],
+      ['4', 50],
+    ])
+  })
+
+  it('makes what is needed this month before what is due earlier but needed later', () => {
+    const result = plan({
+      // X is out of stock, so it is needed now even though its due date is far away.
+      parts: [part('X', '丸物', 0, 30), part('Y', '丸物', 1000, 30)],
+      routes: { X: oneStep('加工', 60), Y: oneStep('加工', 60) },
+      equipment: [machine('M1', '加工')],
+      orders: [order('late-due', 'X', 1, '2027-01-31'), order('early-due', 'Y', 1, '2026-12-10')],
+    })
+
+    expect(result.operations.map((operation) => operation.orderId)).toEqual(['late-due', 'early-due'])
+    expect(result.orders.find((forecast) => forecast.orderId === 'late-due')?.priorityClass).toBe('A')
+    expect(result.orders.find((forecast) => forecast.orderId === 'early-due')?.priorityClass).toBe('B')
+  })
+
+  it('does not start a held order before its day', () => {
+    const result = plan({
+      routes: { P: oneStep('加工', 60) },
+      equipment: [machine('M1', '加工')],
+      orders: [order('1', 'P', 1, '2026-11-20')],
+      changes: [{ kind: 'hold', orderId: '1', until: '2026-11-05' }],
+    })
+
+    expect(result.operations[0].startAt).toBe('2026-11-05T08:00')
   })
 
   it('puts expedited orders first', () => {

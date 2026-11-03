@@ -10,10 +10,13 @@ export type Change =
   | { kind: 'overtime'; equipmentId: string; from: IsoDate; to: IsoDate; minutesPerDay: number }
   | { kind: 'holidayWork'; equipmentId: string; date: IsoDate }
   | { kind: 'expedite'; orderId: string }
+  | { kind: 'hold'; orderId: string; until: IsoDate }
+  | { kind: 'addOrder'; partNumber: string; quantity: number; due: IsoDate }
 
 export type Downtime = { equipmentId: string; from: IsoDate; to: IsoDate }
 export type Overtime = { equipmentId: string; from: IsoDate; to: IsoDate; minutesPerDay: number }
 export type HolidayWork = { equipmentId: string; date: IsoDate }
+export type Hold = { orderId: string; until: IsoDate }
 
 export type Scenario = {
   data: PlantData
@@ -22,6 +25,8 @@ export type Scenario = {
   overtime: Overtime[]
   holidayWork: HolidayWork[]
   expedited: string[]
+  // Orders that must not start before a day.
+  holds: Hold[]
 }
 
 // Raised when a change cannot apply. The message is shown to people and Claude.
@@ -35,6 +40,7 @@ export function buildScenario(data: PlantData, settings: Settings, changes: Chan
     overtime: [],
     holidayWork: [],
     expedited: [],
+    holds: [],
   }
   for (const change of changes) {
     applyChange(scenario, change, today)
@@ -90,7 +96,36 @@ function applyChange(scenario: Scenario, change: Change, today: IsoDate): void {
       }
       return
     }
+    case 'hold': {
+      findOrder(scenario.data, change.orderId)
+      scenario.holds.push({ orderId: change.orderId, until: change.until })
+      return
+    }
+    case 'addOrder': {
+      if (!scenario.data.routes[change.partNumber]) {
+        throw new ChangeError(`型番${change.partNumber}の工程表がありません`)
+      }
+      if (!Number.isInteger(change.quantity) || change.quantity <= 0) {
+        throw new ChangeError('追加する数量は正の整数にしてください')
+      }
+      scenario.data.orders.push({
+        id: nextAddedOrderId(scenario.data),
+        partNumber: change.partNumber,
+        quantity: change.quantity,
+        due: change.due,
+      })
+      return
+    }
   }
+}
+
+// Added orders are numbered in the order they are applied, so the same changes give the same ids.
+const ADDED_ORDER_PREFIX = '追加'
+
+function nextAddedOrderId(data: PlantData): string {
+  let number = 1
+  while (data.orders.some((order) => order.id === `${ADDED_ORDER_PREFIX}${number}`)) number += 1
+  return `${ADDED_ORDER_PREFIX}${number}`
 }
 
 // Turns untrusted input (a tool call from Claude, a saved file) into a Change.
@@ -130,6 +165,10 @@ export function parseChange(input: unknown): Change {
       return { kind: 'holidayWork', equipmentId: text('equipmentId'), date: date('date') }
     case 'expedite':
       return { kind: 'expedite', orderId: text('orderId') }
+    case 'hold':
+      return { kind: 'hold', orderId: text('orderId'), until: date('until') }
+    case 'addOrder':
+      return { kind: 'addOrder', partNumber: text('partNumber'), quantity: integer('quantity'), due: date('due') }
     default:
       throw new ChangeError(`変更の種類「${String(value.kind)}」には対応していません`)
   }
@@ -151,6 +190,10 @@ export function describeChange(change: Change, data: PlantData): string {
       return `${equipmentName(data, change.equipmentId)}を${formatRange(change.date, change.date)}休日出勤で動かす`
     case 'expedite':
       return `注番${change.orderId}を最優先にする`
+    case 'hold':
+      return `注番${change.orderId}を${formatRange(change.until, change.until).replace(/に$/, '')}まで着手しない`
+    case 'addOrder':
+      return `${change.partNumber}を${change.quantity}個、${formatRange(change.due, change.due).replace(/に$/, '')}納期で追加する`
   }
 }
 

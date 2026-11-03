@@ -61,9 +61,11 @@ describe('executeTool', () => {
 
     expect(outcome.isError).toBe(false)
     expect(outcome.event?.labels).toEqual(['注番1045の材料が2日遅れる'])
-    expect(outcome.event?.comparison.newlyLate).toEqual(['1045'])
+    expect(outcome.event?.effect.comparison.newlyLate).toEqual(['1045'])
     expect(outcome.options?.[0].labels[0]).toBe('マシニング1で11/3〜11/13に、1日120分残業する')
-    expect(outcome.options?.[0].comparison.lateAfter).toBe(0)
+    expect(outcome.options?.[0].effect.comparison.lateAfter).toBe(0)
+    expect(outcome.options?.[0].effect.overtimeHoursDelta).toBeGreaterThan(0)
+    expect(outcome.options?.[0].effect.grossProfitDelta).toBeLessThan(0)
   })
 
   it('adds the event only once across decisions', () => {

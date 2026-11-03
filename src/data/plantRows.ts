@@ -1,16 +1,27 @@
-import type { Equipment, IsoDate, Lot, Order, PlantData, Routes } from '../engine/types'
+import type { Equipment, IsoDate, Lot, Order, Part, PlantData, Routes, SetupRule } from '../engine/types'
 
 // Sheet and column names of the Excel workbook. People fill these in, so they are Japanese.
 export const SHEETS = {
+  parts: '品目',
   routes: '工程表',
   equipment: '設備',
+  setupRules: '段取り',
   orders: '注残',
   lots: 'Lot',
 } as const
 
 export const COLUMNS = {
+  parts: {
+    partNumber: '型番',
+    shape: '形状',
+    price: '売価',
+    materialCost: '材料費',
+    stock: '在庫',
+    monthlyUsage: '月間の出荷数',
+  },
   routes: { partNumber: '型番', order: '順番', step: '工程名', minutes: '1個あたりの分' },
-  equipment: { id: '設備ID', name: '設備名', process: '担当工程', setup: '段取りの分' },
+  equipment: { id: '設備ID', name: '設備名', process: '担当工程', setup: '段取りの分', hourlyCost: '1時間の費用' },
+  setupRules: { process: '工程名', fromShape: '前の形状', toShape: '次の形状', minutes: '段取りの分' },
   orders: { id: '注番', partNumber: '型番', quantity: '数量', due: '納期', materialOn: '材料入荷日' },
   lots: { id: 'Lot番号', orderId: '注番', quantity: '数量', step: '今の工程番号', arrivedOn: 'その工程に着いた日' },
 } as const
@@ -21,8 +32,16 @@ export type Row = Record<string, unknown>
 export type SheetRows = Record<string, Row[]>
 
 export function toPlantRows(data: PlantData): SheetRows {
-  const { routes, equipment, orders, lots } = COLUMNS
+  const { parts, routes, equipment, setupRules, orders, lots } = COLUMNS
   return {
+    [SHEETS.parts]: data.parts.map((part) => ({
+      [parts.partNumber]: part.partNumber,
+      [parts.shape]: part.shape,
+      [parts.price]: part.price,
+      [parts.materialCost]: part.materialCost,
+      [parts.stock]: part.stock,
+      [parts.monthlyUsage]: part.monthlyUsage,
+    })),
     [SHEETS.routes]: Object.entries(data.routes).flatMap(([partNumber, route]) =>
       route.map((step, index) => ({
         [routes.partNumber]: partNumber,
@@ -36,6 +55,13 @@ export function toPlantRows(data: PlantData): SheetRows {
       [equipment.name]: item.name,
       [equipment.process]: item.process,
       [equipment.setup]: item.setupMinutes,
+      [equipment.hourlyCost]: item.hourlyCost,
+    })),
+    [SHEETS.setupRules]: data.setupRules.map((rule) => ({
+      [setupRules.process]: rule.process,
+      [setupRules.fromShape]: rule.fromShape,
+      [setupRules.toShape]: rule.toShape,
+      [setupRules.minutes]: rule.minutes,
     })),
     [SHEETS.orders]: data.orders.map((order) => ({
       [orders.id]: order.id,
@@ -70,6 +96,21 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
   // Row 1 holds the headers, so the first data row is row 2.
   const at = (sheet: string, index: number) => `${sheet}の${index + 2}行目`
 
+  const parts: Part[] = []
+  rowsOf(SHEETS.parts).forEach((row, index) => {
+    const c = COLUMNS.parts
+    const where = at(SHEETS.parts, index)
+    const partNumber = text(row[c.partNumber])
+    const values = [c.price, c.materialCost, c.stock, c.monthlyUsage].map((column) => number(row[column]))
+    if (!partNumber || !text(row[c.shape])) return errors.push(`${where}：型番と形状を入れてください`)
+    if (parts.some((part) => part.partNumber === partNumber)) return errors.push(`${where}：型番「${partNumber}」が重複しています`)
+    if (values.some((value) => value === null || value < 0)) {
+      return errors.push(`${where}：売価・材料費・在庫・月間の出荷数は0以上の数にしてください`)
+    }
+    const [price, materialCost, stock, monthlyUsage] = values as number[]
+    parts.push({ partNumber, shape: text(row[c.shape]), price, materialCost, stock, monthlyUsage })
+  })
+
   const routeSteps = new Map<string, { order: number; name: string; minutesPerPiece: number }[]>()
   rowsOf(SHEETS.routes).forEach((row, index) => {
     const c = COLUMNS.routes
@@ -97,9 +138,29 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
     const id = text(row[c.id])
     const process = text(row[c.process])
     const setup = number(row[c.setup]) ?? 0
+    const hourlyCost = number(row[c.hourlyCost]) ?? 0
     if (!id || !process) return errors.push(`${where}：設備IDと担当工程を入れてください`)
     if (equipment.some((item) => item.id === id)) return errors.push(`${where}：設備ID「${id}」が重複しています`)
-    equipment.push({ id, name: text(row[c.name]) || id, process, setupMinutes: Math.max(0, setup) })
+    equipment.push({
+      id,
+      name: text(row[c.name]) || id,
+      process,
+      setupMinutes: Math.max(0, setup),
+      hourlyCost: Math.max(0, hourlyCost),
+    })
+  })
+
+  const setupRules: SetupRule[] = []
+  rowsOf(SHEETS.setupRules).forEach((row, index) => {
+    const c = COLUMNS.setupRules
+    const where = at(SHEETS.setupRules, index)
+    const minutes = number(row[c.minutes])
+    const rule = { process: text(row[c.process]), fromShape: text(row[c.fromShape]), toShape: text(row[c.toShape]) }
+    if (!rule.process || !rule.fromShape || !rule.toShape) {
+      return errors.push(`${where}：工程名と前後の形状を入れてください`)
+    }
+    if (minutes === null || minutes < 0) return errors.push(`${where}：段取りの分は0以上の数にしてください`)
+    setupRules.push({ ...rule, minutes })
   })
 
   const orders: Order[] = []
@@ -151,7 +212,15 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
     }
   }
 
-  return errors.length > 0 ? { data: null, errors } : { data: { routes, equipment, orders, lots }, errors }
+  for (const partNumber of Object.keys(routes)) {
+    if (!parts.some((part) => part.partNumber === partNumber)) {
+      errors.push(`工程表の型番「${partNumber}」が品目にありません`)
+    }
+  }
+
+  return errors.length > 0
+    ? { data: null, errors }
+    : { data: { parts, routes, equipment, setupRules, orders, lots }, errors }
 }
 
 function text(value: unknown): string {

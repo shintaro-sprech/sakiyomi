@@ -14,8 +14,33 @@ export type Equipment = {
   id: string
   name: string
   process: string
-  // Charged when the part number changes on this equipment.
+  // Used when the part number changes and no setup rule covers the two shapes.
   setupMinutes: number
+  // Running cost per working hour, in yen.
+  hourlyCost: number
+}
+
+// What the plant makes and keeps in stock, per part number.
+export type Part = {
+  partNumber: string
+  // Shape family. Setup time depends on the shape changed from and to.
+  shape: string
+  // Yen per piece.
+  price: number
+  materialCost: number
+  // Finished pieces on hand now.
+  stock: number
+  // Pieces shipped in an average month.
+  monthlyUsage: number
+}
+
+// Setup minutes on a process when the shape changes from one to another.
+// fromShape === toShape covers a part number change within the same shape.
+export type SetupRule = {
+  process: string
+  fromShape: string
+  toShape: string
+  minutes: number
 }
 
 // An open manufacturing order (製造注残).
@@ -40,8 +65,10 @@ export type Lot = {
 }
 
 export type PlantData = {
+  parts: Part[]
   routes: Routes
   equipment: Equipment[]
+  setupRules: SetupRule[]
   orders: Order[]
   lots: Lot[]
 }
@@ -61,4 +88,9 @@ export type Settings = {
   transferMinutes: number
   // Lots sitting at a step this many days or more get a warning.
   stagnationWarningDays: number
+  // Labor cost per person-hour in yen, and the premiums on top of it
+  // (0.25 = 25%; the statutory minimums in Japan are 25% and 35%).
+  laborRate: number
+  overtimePremium: number
+  holidayPremium: number
 }

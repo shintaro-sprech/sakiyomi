@@ -1,7 +1,9 @@
 import { addWorkingMinutes, equipmentCalendar, nextWorkingMinute, type Calendar } from './calendar'
 import { daysBetween, MINUTES_PER_DAY, minuteToDate, minuteToDateTime, parseClock } from './dates'
+import { orderDemands, type PriorityClass } from './demand'
 import type { Scenario } from './scenario'
-import type { Equipment, IsoDate } from './types'
+import { setupMinutes } from './setup'
+import type { Equipment, IsoDate, PlantData } from './types'
 
 export type ScheduledOperation = {
   lotId: string
@@ -35,6 +37,8 @@ export type OrderForecast = {
   orderId: string
   partNumber: string
   due: IsoDate
+  needBy: IsoDate
+  priorityClass: PriorityClass
   // done: nothing left to make. unscheduled: some step has no equipment that can run it.
   status: 'done' | 'scheduled' | 'unscheduled'
   finishAt: string | null
@@ -57,8 +61,10 @@ type Job = {
   partNumber: string
   quantity: number
   planned: boolean
-  due: IsoDate
-  dueEnd: number
+  needBy: IsoDate
+  // End of the working day the order is needed by, in plan minutes.
+  needByEnd: number
+  priorityClass: PriorityClass
   expedited: boolean
   steps: { index: number; name: string; minutes: number }[]
   next: number
@@ -84,9 +90,11 @@ type Candidate = {
 // List scheduler in the Giffler-Thompson style. Each round finds the
 // operation that could finish first, then lets every operation that would
 // start before that on the same equipment compete by priority:
-// expedited first, then a score mixing due-date slack (days) and setup
-// time (hours) by settings.dueWeight, then due date, order id and lot id.
-// The first operation on each piece of equipment needs no setup.
+// expedited first, then demand class (A this month, B next month, C later),
+// then a score mixing slack to the need date (days) and setup time (hours)
+// by settings.dueWeight, then need date, order id and lot id.
+// Setup comes from the shape-to-shape rules; the first operation on each
+// piece of equipment needs none.
 export function schedule(scenario: Scenario, planStart: IsoDate): ScheduleResult {
   const { data, settings } = scenario
   const workEnd = parseClock(settings.workEnd)
@@ -111,7 +119,7 @@ export function schedule(scenario: Scenario, planStart: IsoDate): ScheduleResult
       const step = job.steps[job.next]
       const eligible = machines.filter((machine) => machine.equipment.process === step.name)
       const found = eligible
-        .map((machine) => evaluate(job, machine, step.minutes))
+        .map((machine) => evaluate(data, job, machine, step.minutes))
         .filter((candidate): candidate is Candidate => candidate !== null)
       if (found.length === 0) {
         for (const rest of job.steps.slice(job.next)) {
@@ -158,16 +166,23 @@ export function schedule(scenario: Scenario, planStart: IsoDate): ScheduleResult
 
 function buildJobs(scenario: Scenario, planStart: IsoDate, workEnd: number): Job[] {
   const { data } = scenario
+  const demands = new Map(orderDemands(data, planStart).map((demand) => [demand.orderId, demand]))
   const orders = [...data.orders].sort((a, b) => a.due.localeCompare(b.due) || a.id.localeCompare(b.id))
   const jobs: Job[] = []
 
   for (const order of orders) {
     const route = data.routes[order.partNumber] ?? []
+    const demand = demands.get(order.id)
+    const needBy = demand?.needBy ?? order.due
+    const holdUntil = scenario.holds
+      .filter((hold) => hold.orderId === order.id)
+      .reduce((latest, hold) => Math.max(latest, daysBetween(planStart, hold.until) * MINUTES_PER_DAY), 0)
     const base = {
       orderId: order.id,
       partNumber: order.partNumber,
-      due: order.due,
-      dueEnd: daysBetween(planStart, order.due) * MINUTES_PER_DAY + workEnd,
+      needBy,
+      needByEnd: daysBetween(planStart, needBy) * MINUTES_PER_DAY + workEnd,
+      priorityClass: demand?.priorityClass ?? 'C',
       expedited: scenario.expedited.includes(order.id),
     }
     const stepsFrom = (first: number, quantity: number) =>
@@ -188,7 +203,7 @@ function buildJobs(scenario: Scenario, planStart: IsoDate, workEnd: number): Job
         planned: false,
         steps: stepsFrom(lot.stepIndex, lot.quantity),
         next: 0,
-        readyAt: 0,
+        readyAt: holdUntil,
       })
     }
 
@@ -202,15 +217,15 @@ function buildJobs(scenario: Scenario, planStart: IsoDate, workEnd: number): Job
         planned: true,
         steps: stepsFrom(0, unreleased),
         next: 0,
-        readyAt: Math.max(0, materialDay * MINUTES_PER_DAY),
+        readyAt: Math.max(0, materialDay * MINUTES_PER_DAY, holdUntil),
       })
     }
   }
   return jobs
 }
 
-function evaluate(job: Job, machine: Machine, minutes: number): Candidate | null {
-  const setup = machine.lastPart !== null && machine.lastPart !== job.partNumber ? machine.equipment.setupMinutes : 0
+function evaluate(data: PlantData, job: Job, machine: Machine, minutes: number): Candidate | null {
+  const setup = setupMinutes(data, machine.equipment, machine.lastPart, job.partNumber)
   const start = nextWorkingMinute(machine.calendar, Math.max(machine.freeAt, job.readyAt))
   if (start === null) return null
   const setupEnd = addWorkingMinutes(machine.calendar, start, setup)
@@ -222,8 +237,9 @@ function evaluate(job: Job, machine: Machine, minutes: number): Candidate | null
 function compareCandidates(a: Candidate, b: Candidate, dueWeight: number): number {
   if (a.job.expedited !== b.job.expedited) return a.job.expedited ? -1 : 1
   return (
+    a.job.priorityClass.localeCompare(b.job.priorityClass) ||
     score(a, dueWeight) - score(b, dueWeight) ||
-    a.job.due.localeCompare(b.job.due) ||
+    a.job.needBy.localeCompare(b.job.needBy) ||
     a.job.orderId.localeCompare(b.job.orderId) ||
     a.job.lotId.localeCompare(b.job.lotId)
   )
@@ -232,7 +248,7 @@ function compareCandidates(a: Candidate, b: Candidate, dueWeight: number): numbe
 function score(candidate: Candidate, dueWeight: number): number {
   const { job } = candidate
   const remaining = job.steps.slice(job.next + 1).reduce((total, step) => total + step.minutes, 0)
-  const slackDays = (job.dueEnd - (candidate.end + remaining)) / MINUTES_PER_DAY
+  const slackDays = (job.needByEnd - (candidate.end + remaining)) / MINUTES_PER_DAY
   return dueWeight * slackDays + (1 - dueWeight) * (candidate.setup / 60)
 }
 
@@ -268,10 +284,18 @@ function forecastOrders(
   operations: ScheduledOperation[],
   unscheduled: UnscheduledOperation[],
 ): OrderForecast[] {
+  const demands = new Map(orderDemands(scenario.data, planStart).map((demand) => [demand.orderId, demand]))
   return [...scenario.data.orders]
     .sort((a, b) => a.due.localeCompare(b.due) || a.id.localeCompare(b.id))
     .map((order): OrderForecast => {
-      const base = { orderId: order.id, partNumber: order.partNumber, due: order.due }
+      const demand = demands.get(order.id)
+      const base = {
+        orderId: order.id,
+        partNumber: order.partNumber,
+        due: order.due,
+        needBy: demand?.needBy ?? order.due,
+        priorityClass: demand?.priorityClass ?? 'C',
+      }
       if (unscheduled.some((entry) => entry.orderId === order.id)) {
         return { ...base, status: 'unscheduled', finishAt: null, finishDate: null, lateDays: null, late: true }
       }

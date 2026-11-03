@@ -1,14 +1,27 @@
 import { compareSchedules, type ScheduleComparison } from '../engine/compare'
+import { orderDemands } from '../engine/demand'
+import { monthlyOutlook, type MonthlyOutlook } from '../engine/economics'
 import { runPlan, type PlanState } from '../engine/plan'
 import { summarizeProgress } from '../engine/progress'
 import { ChangeError, describeChange, parseChange, sameChange, type Change } from '../engine/scenario'
 import { TOOL_NAMES } from './toolSchemas'
 
+// The effect of a set of changes on the current plan, computed by the engine.
+export type Effect = {
+  comparison: ScheduleComparison
+  // This month's outlook with the changes applied.
+  outlook: MonthlyOutlook
+  // Gross profit and premium hours with the changes, minus without them.
+  grossProfitDelta: number
+  overtimeHoursDelta: number
+  holidayHoursDelta: number
+}
+
 // What the planner reported (a delay, a breakdown) and its effect if nothing is done.
 export type ReportedEvent = {
   changes: Change[]
   labels: string[]
-  comparison: ScheduleComparison
+  effect: Effect
 }
 
 // A countermeasure Claude put in front of the planner. Its effect, with the event
@@ -20,7 +33,7 @@ export type ProposedOption = {
   event: ReportedEvent
   changes: Change[]
   labels: string[]
-  comparison: ScheduleComparison
+  effect: Effect
 }
 
 // What adopting or previewing an option adds to the plan: the event, unless an
@@ -82,12 +95,28 @@ function parseChanges(input: unknown): Change[] {
   return input.map(parseChange)
 }
 
+export function effectOf(state: PlanState, changes: Change[]): Effect {
+  const before = runPlan(state)
+  const after = runPlan(state, changes)
+  const outlookBefore = monthlyOutlook(before, state.today)
+  const outlook = monthlyOutlook(after, state.today)
+  return {
+    comparison: compareSchedules(before.result, after.result),
+    outlook,
+    grossProfitDelta: outlook.grossProfit - outlookBefore.grossProfit,
+    overtimeHoursDelta: round1(outlook.overtimeHours - outlookBefore.overtimeHours),
+    holidayHoursDelta: round1(outlook.holidayHours - outlookBefore.holidayHours),
+  }
+}
+
 const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土']
 
 export function describeSituation(state: PlanState) {
-  const { scenario, result } = runPlan(state)
+  const plan = runPlan(state)
+  const { scenario, result } = plan
   const { data, settings } = scenario
   const forecasts = new Map(result.orders.map((forecast) => [forecast.orderId, forecast]))
+  const demands = new Map(orderDemands(data, state.today).map((demand) => [demand.orderId, demand]))
 
   return {
     today: state.today,
@@ -95,16 +124,23 @@ export function describeSituation(state: PlanState) {
     workdays: settings.workWeekdays.map((day) => WEEKDAY_NAMES[day]).join(''),
     transferMinutes: settings.transferMinutes,
     dueWeight: settings.dueWeight,
+    laborRatePerHour: settings.laborRate,
+    overtimePremium: settings.overtimePremium,
+    holidayPremium: settings.holidayPremium,
     adoptedChanges: state.adopted.map((change) => describeChange(change, data)),
+    thisMonth: summarizeOutlook(monthlyOutlook(plan, state.today)),
+    parts: data.parts,
+    setupRules: data.setupRules,
     equipment: data.equipment.map((equipment) => {
       const operations = result.operations.filter((operation) => operation.equipmentId === equipment.id)
       return {
         id: equipment.id,
         name: equipment.name,
         process: equipment.process,
-        setupMinutes: equipment.setupMinutes,
+        defaultSetupMinutes: equipment.setupMinutes,
+        hourlyCost: equipment.hourlyCost,
         stopped: settings.stoppedEquipment.includes(equipment.id),
-        plannedHours: Math.round(operations.reduce((total, operation) => total + operation.workMinutes, 0) / 6) / 10,
+        plannedHours: round1(operations.reduce((total, operation) => total + operation.workMinutes, 0) / 60),
         busyUntil: operations.length > 0 ? operations[operations.length - 1].endAt : null,
       }
     }),
@@ -117,11 +153,15 @@ export function describeSituation(state: PlanState) {
     orders: data.orders.map((order) => {
       const progress = summarizeProgress([order], data.lots, data.routes[order.partNumber] ?? [])
       const forecast = forecasts.get(order.id)
+      const demand = demands.get(order.id)
       return {
         id: order.id,
         partNumber: order.partNumber,
         quantity: order.quantity,
         due: order.due,
+        priorityClass: demand?.priorityClass ?? null,
+        needBy: demand?.needBy ?? null,
+        stockoutOn: demand?.stockoutOn ?? null,
         materialOn: order.materialOn ?? null,
         unstarted: progress.unstarted,
         wip: progress.wip,
@@ -132,6 +172,23 @@ export function describeSituation(state: PlanState) {
       }
     }),
     unscheduled: result.unscheduled,
+  }
+}
+
+function summarizeOutlook(outlook: MonthlyOutlook) {
+  return {
+    month: outlook.month,
+    revenue: outlook.revenue,
+    materialCost: outlook.materialCost,
+    laborCost: outlook.laborCost,
+    machineCost: outlook.machineCost,
+    grossProfit: outlook.grossProfit,
+    overtimeHours: outlook.overtimeHours,
+    holidayHours: outlook.holidayHours,
+    setupHours: outlook.setupHours,
+    lateOrders: outlook.lateOrders,
+    shortagesUntilEndOfNextMonth: outlook.shortages,
+    ordersByClass: outlook.classCounts,
   }
 }
 
@@ -147,6 +204,8 @@ function describeOrderPlan(state: PlanState, orderIdInput: unknown) {
     partNumber: order.partNumber,
     quantity: order.quantity,
     due: order.due,
+    priorityClass: forecast?.priorityClass ?? null,
+    needBy: forecast?.needBy ?? null,
     forecastFinish: forecast?.finishAt ?? null,
     operations: result.operations
       .filter((operation) => operation.orderId === order.id)
@@ -164,23 +223,20 @@ function describeOrderPlan(state: PlanState, orderIdInput: unknown) {
 }
 
 function simulate(state: PlanState, changes: Change[]) {
-  const comparison = compare(state, changes)
-  const { scenario, result } = runPlan(state, changes)
+  const effect = effectOf(state, changes)
+  const data = runPlan(state, changes).scenario.data
   return {
-    changes: changes.map((change) => describeChange(change, scenario.data)),
-    lateBefore: comparison.lateBefore,
-    lateAfter: comparison.lateAfter,
-    newlyLate: comparison.newlyLate,
-    noLongerLate: comparison.noLongerLate,
-    shifted: comparison.shifted,
-    lateOrders: result.orders
-      .filter((forecast) => forecast.late)
-      .map((forecast) => ({ orderId: forecast.orderId, due: forecast.due, finish: forecast.finishDate, lateDays: forecast.lateDays })),
+    changes: changes.map((change) => describeChange(change, data)),
+    lateBefore: effect.comparison.lateBefore,
+    lateAfter: effect.comparison.lateAfter,
+    newlyLate: effect.comparison.newlyLate,
+    noLongerLate: effect.comparison.noLongerLate,
+    shifted: effect.comparison.shifted,
+    grossProfitDelta: effect.grossProfitDelta,
+    overtimeHoursDelta: effect.overtimeHoursDelta,
+    holidayHoursDelta: effect.holidayHoursDelta,
+    thisMonthAfter: summarizeOutlook(effect.outlook),
   }
-}
-
-function compare(state: PlanState, changes: Change[]): ScheduleComparison {
-  return compareSchedules(runPlan(state).result, runPlan(state, changes).result)
 }
 
 function presentOptions(state: PlanState, eventInput: unknown, optionsInput: unknown): ToolOutcome {
@@ -191,7 +247,7 @@ function presentOptions(state: PlanState, eventInput: unknown, optionsInput: unk
   const event: ReportedEvent = {
     changes: eventChanges,
     labels: eventChanges.map((change) => describeChange(change, state.data)),
-    comparison: compare(state, eventChanges),
+    effect: effectOf(state, eventChanges),
   }
   const options = optionsInput.map((raw): ProposedOption => {
     const changes = parseChanges(field(raw, 'changes'))
@@ -202,22 +258,29 @@ function presentOptions(state: PlanState, eventInput: unknown, optionsInput: unk
       event,
       changes,
       labels: changes.map((change) => describeChange(change, state.data)),
-      comparison: compare(state, [...eventChanges, ...changes]),
+      effect: effectOf(state, [...eventChanges, ...changes]),
     }
   })
 
-  const effect = (comparison: ScheduleComparison) => ({
-    lateAfter: comparison.lateAfter,
-    newlyLate: comparison.newlyLate,
-    noLongerLate: comparison.noLongerLate,
+  const brief = (effect: Effect) => ({
+    lateAfter: effect.comparison.lateAfter,
+    newlyLate: effect.comparison.newlyLate,
+    noLongerLate: effect.comparison.noLongerLate,
+    grossProfitDelta: effect.grossProfitDelta,
+    overtimeHoursDelta: effect.overtimeHoursDelta,
+    holidayHoursDelta: effect.holidayHoursDelta,
   })
   return {
     content: JSON.stringify({
-      ifNothingIsDone: effect(event.comparison),
-      options: options.map((option) => ({ title: option.title, ...effect(option.comparison) })),
+      ifNothingIsDone: brief(event.effect),
+      options: options.map((option) => ({ title: option.title, ...brief(option.effect) })),
     }),
     isError: false,
     event,
     options,
   }
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10
 }

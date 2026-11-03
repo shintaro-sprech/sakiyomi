@@ -2,11 +2,13 @@ import { Badge, CloseButton, Group, Paper, SegmentedControl, SimpleGrid, Stack, 
 import { useReducedMotion } from '@mantine/hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import type { PriorityClass } from '../engine/demand'
 import type { Plan } from '../engine/plan'
 import { stagnantDays, summarizeProgress, type ProgressSummary } from '../engine/progress'
 import type { OrderForecast } from '../engine/scheduler'
 import type { IsoDate, Lot, Order } from '../engine/types'
 import { percent, shortDate, shortDateTime } from './format'
+import { ClassBadge } from './OutlookView'
 
 type Props = {
   plan: Plan
@@ -21,6 +23,7 @@ type Row = {
   route: string[]
   summary: ProgressSummary
   forecast: { finish: string | null; late: boolean; lateCount: number }
+  priorityClass: PriorityClass | null
 }
 
 type Selection = { rowKey: string; step: number | null }
@@ -119,7 +122,12 @@ export function ProgressView({ plan, today, warningDays }: Props) {
               <tr key={row.key} className={selection?.rowKey === row.key ? 'is-selected' : undefined}>
                 {mode === 'order' ? (
                   <>
-                    <td>{row.label}</td>
+                    <td>
+                      <Group gap={6} wrap="nowrap">
+                        {row.label}
+                        {row.priorityClass && <ClassBadge value={row.priorityClass} />}
+                      </Group>
+                    </td>
                     <td>{row.orders[0].partNumber}</td>
                     <td className="num">{row.summary.quantity}</td>
                     <td>{shortDate(row.orders[0].due)}</td>
@@ -203,6 +211,7 @@ function buildRow(
     route: route.map((step) => step.name),
     summary,
     forecast: { finish: finishes.sort().at(-1) ?? null, late: lateCount > 0, lateCount: orders.length > 1 ? lateCount : 0 },
+    priorityClass: orders.length === 1 ? (orderForecasts[0]?.priorityClass ?? null) : null,
   }
 }
 

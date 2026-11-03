@@ -272,7 +272,7 @@ function EventSummary({ event }: { event: ReportedEvent }) {
         <Text size="xs" c="dimmed">
           何もしないと
         </Text>
-        <EffectSummary comparison={event.comparison} />
+        <EffectSummary effect={event.effect} />
       </Stack>
     </Paper>
   )

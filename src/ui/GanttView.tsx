@@ -52,7 +52,7 @@ export function GanttView({ plan, today, highlight }: Props) {
   const forecasts = useMemo(() => new Map(result.orders.map((forecast) => [forecast.orderId, forecast])), [result])
   const dueByOrder = useMemo(() => new Map(data.orders.map((order) => [order.id, order.due])), [data])
   const highlighted = new Set([
-    ...(highlight?.comparison.shifted.map((shift) => shift.orderId) ?? []),
+    ...(highlight?.effect.comparison.shifted.map((shift) => shift.orderId) ?? []),
     ...(focusOrder ? [focusOrder] : []),
   ])
   const equipmentNames = new Map(data.equipment.map((equipment) => [equipment.id, equipment.name]))
