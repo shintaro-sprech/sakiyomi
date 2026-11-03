@@ -34,6 +34,15 @@ describe('plant rows', () => {
     expect(data?.equipment.find((item) => item.id === 'MC-1')?.hourlyCost).toBe(1200)
   })
 
+  it('refuses a last part the equipment could not have run', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    const bending = rows[SHEETS.equipment].findIndex((row) => row[COLUMNS.equipment.id] === 'BND-1')
+    rows[SHEETS.equipment][bending][COLUMNS.equipment.lastPart] = 'B-200'
+    const { errors } = parsePlantRows(rows)
+
+    expect(errors).toContain(`設備の${bending + 2}行目：直前の型番「B-200」の工程表に「曲げ」がありません`)
+  })
+
   it('plans without people limits when the workbook has no crews', () => {
     const rows = toPlantRows(createSampleData('2026-11-03'))
     delete rows[SHEETS.crews]

@@ -19,6 +19,9 @@ export type Equipment = {
   // Running cost per working hour, in yen: what running the machine uses up, such as
   // power and tools. Depreciation is not in it, as fixed costs are not allocated.
   hourlyCost: number
+  // Part number it ran last before the plan starts; its first setup is from this one.
+  // Empty when the planner chose none.
+  lastPart?: string
 }
 
 // What the plant makes and keeps in stock, per part number.

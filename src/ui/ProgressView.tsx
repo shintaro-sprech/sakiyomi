@@ -687,15 +687,21 @@ function LotPanel({
       days: lot.stepIndex < routeOf(lot.orderId).length ? stagnantDays(lot, today) : null,
       operation: nextOperation(lot.id, lot.stepIndex),
     })),
-    ...unreleased.map((item) => ({
-      key: `${item.orderId}-未投入`,
-      lot: '未投入',
-      orderId: item.orderId,
-      step: stepLabel(item.orderId, 0),
-      quantity: item.quantity,
-      days: null,
-      operation: nextOperation(`${item.orderId}-未投入`, 0),
-    })),
+    ...unreleased.map((item) => {
+      // The pieces not yet released run under the Lot number they will get.
+      const operation = plan.result.operations.find(
+        (candidate) => candidate.orderId === item.orderId && candidate.planned && candidate.stepIndex === 0,
+      )
+      return {
+        key: `${item.orderId}-planned`,
+        lot: operation ? `${operation.lotId} 予定` : '未投入',
+        orderId: item.orderId,
+        step: stepLabel(item.orderId, 0),
+        quantity: item.quantity,
+        days: null,
+        operation,
+      }
+    }),
   ].sort(
     (a, b) =>
       (orders.get(a.orderId)?.due ?? '').localeCompare(orders.get(b.orderId)?.due ?? '') || a.key.localeCompare(b.key),

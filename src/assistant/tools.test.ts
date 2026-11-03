@@ -48,7 +48,7 @@ describe('executeTool', () => {
     expect(current.forecastFinish).toBe('2026-11-12T12:10')
     expect(delayed.changes).toEqual(['注番1045の材料が2日遅れる'])
     expect(delayed.forecastFinish).toBe('2026-11-16T13:45')
-    expect(delayed.operations[0].start).toBe('2026-11-06T08:00')
+    expect(delayed.operations[0]).toMatchObject({ lot: 'L1045-1', planned: true, start: '2026-11-06T08:00' })
     expect(state.adopted).toEqual([])
   })
 
@@ -147,6 +147,7 @@ describe('executeTool', () => {
     const crew = describeSituation(state).crews.find((item) => item.name === '機械班')
 
     expect(crew?.equipment).toEqual(['MC-1', 'HT-1', 'GRD-1', 'DRL-1'])
+    expect(describeSituation(state).equipment.find((item) => item.id === 'MC-1')?.lastPart).toBe('B-200')
     expect(crew?.days.find((day) => day.date === '2026-11-05')?.people).toBe(1)
   })
 

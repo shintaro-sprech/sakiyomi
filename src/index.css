@@ -58,6 +58,11 @@
   --sk-mascot-face: var(--mantine-color-gray-0);
 }
 
+/* Scrolling to a focused element keeps it clear of the fixed 56px header. */
+html {
+  scroll-padding-top: 64px;
+}
+
 /* One focus ring for Mantine controls and our own, per color scheme. */
 .mantine-focus-auto:focus-visible,
 .mantine-focus-always:focus,
@@ -624,7 +629,11 @@
 .gantt-row {
   display: flex;
   border-bottom: 1px solid var(--sk-border);
-  min-height: 42px;
+  min-height: 64px;
+}
+
+.gantt-row.is-selected .gantt-track {
+  background: var(--mantine-primary-color-light);
 }
 
 .gantt-label {
@@ -635,7 +644,7 @@
   flex-direction: column;
   justify-content: center;
   flex: 0 0 180px;
-  padding: 4px 12px;
+  padding: 4px;
   background: var(--sk-surface);
   border-right: 1px solid var(--sk-border);
   font-size: var(--mantine-font-size-sm);
@@ -644,6 +653,44 @@
 .gantt-label span {
   font-size: 12px;
   color: var(--sk-text-dimmed);
+}
+
+/* Each equipment's name is a button that lists everything it runs. */
+.gantt-equipment {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--mantine-radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gantt-equipment:hover {
+  border-color: var(--mantine-primary-color-filled);
+}
+
+.gantt-equipment:focus-visible {
+  outline: 2px solid var(--sk-focus);
+  outline-offset: 1px;
+}
+
+.gantt-equipment[aria-pressed='true'] {
+  border-color: var(--sk-focus);
+  box-shadow: inset 0 0 0 1px var(--sk-focus);
+}
+
+.gantt-last {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .gantt-head {
@@ -656,9 +703,15 @@
   color: var(--sk-text-dimmed);
 }
 
+.gantt-head .gantt-label {
+  padding-left: 12px;
+}
+
 .gantt-track {
   position: relative;
   flex: 0 0 auto;
+  /* Room for the ring and focus outline of bars that start on the first morning. */
+  margin-left: 8px;
 }
 
 .gantt-day {
@@ -694,8 +747,8 @@
 
 .gantt-bar {
   position: absolute;
-  top: 8px;
-  height: 26px;
+  top: 10px;
+  height: 44px;
   display: flex;
   align-items: center;
   padding: 0;
@@ -734,9 +787,21 @@
   opacity: 0.22;
 }
 
+.gantt-bar.is-dim:hover,
+.gantt-bar.is-dim:focus-visible {
+  opacity: 1;
+}
+
+/* A ring for the chosen bar, so the focus outline stays distinct from it. */
 .gantt-bar.is-selected {
-  outline: 2px solid var(--mantine-color-text);
-  outline-offset: 1px;
+  z-index: 1;
+  box-shadow:
+    0 0 0 2px var(--mantine-color-body),
+    0 0 0 4px var(--mantine-color-text);
+}
+
+.gantt-bar.is-selected:focus-visible {
+  outline-offset: 5px;
 }
 
 .bar-setup-part {
@@ -746,10 +811,32 @@
 }
 
 .bar-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   padding: 0 6px;
+  line-height: 16px;
+}
+
+.bar-text > span {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.bar-lot {
+  font-weight: 700;
+}
+
+/* The step of a lot's flow that was clicked, and the part run before an equipment's plan. */
+tr.is-chosen > * {
+  background: var(--mantine-primary-color-light);
+  font-weight: 700;
+}
+
+tr.is-before > * {
+  color: var(--sk-text-dimmed);
+  background: var(--sk-muted-surface);
 }
 
 /* Chat */

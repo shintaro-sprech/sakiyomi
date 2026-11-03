@@ -53,17 +53,26 @@ function load(): SavedState {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as SavedState
-      if (parsed.version === 3) return parsed
+      if (parsed.version === 3) return withLastParts(parsed)
     }
     const previous = window.localStorage.getItem(PREVIOUS_KEY)
     if (previous) {
       const parsed = JSON.parse(previous) as Omit<SavedState, 'version'> & { version: number }
-      if (parsed.version === 2) return fromVersion2(parsed)
+      if (parsed.version === 2) return withLastParts(fromVersion2(parsed))
     }
   } catch {
     // Fall through to a fresh sample.
   }
   return createInitialState()
+}
+
+// The sample saved before equipment kept the part it ran last gets it from the sample.
+// A planner's choice of none is kept as an empty part, so it is not filled in again.
+function withLastParts(saved: SavedState): SavedState {
+  if (saved.dataSource !== 'sample' || saved.data.equipment.some((item) => 'lastPart' in item)) return saved
+  const sample = new Map(createSampleData(localToday()).equipment.map((item) => [item.id, item.lastPart]))
+  const equipment = saved.data.equipment.map((item) => ({ ...item, lastPart: sample.get(item.id) }))
+  return { ...saved, data: { ...saved.data, equipment } }
 }
 
 function fromVersion2(saved: Omit<SavedState, 'version'>): SavedState {

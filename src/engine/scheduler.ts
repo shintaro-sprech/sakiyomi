@@ -12,7 +12,7 @@ import { addDays, daysBetween, MINUTES_PER_DAY, minuteToDate, minuteToDateTime, 
 import { orderDemands, type PriorityClass } from './demand'
 import type { Scenario } from './scenario'
 import { setupMinutes } from './setup'
-import type { Crew, Equipment, IsoDate, PlantData } from './types'
+import type { Crew, Equipment, IsoDate, Lot, PlantData } from './types'
 
 export type ScheduledOperation = {
   lotId: string
@@ -40,6 +40,9 @@ export type ScheduledOperation = {
 export type UnscheduledOperation = {
   lotId: string
   orderId: string
+  // Pieces not yet released, under the Lot number they will get.
+  planned: boolean
+  stepIndex: number
   stepName: string
   reason: string
 }
@@ -222,7 +225,7 @@ export function schedule(scenario: Scenario, planStart: IsoDate): ScheduleResult
       calendar: equipmentCalendar(scenario, equipment.id, planStart),
       crew: crews.get(equipment.id) ?? null,
       freeAt: 0,
-      lastPart: null,
+      lastPart: equipment.lastPart || null,
     }))
 
   const operations: ScheduledOperation[] = []
@@ -242,6 +245,8 @@ export function schedule(scenario: Scenario, planStart: IsoDate): ScheduleResult
           unscheduled.push({
             lotId: job.lotId,
             orderId: job.orderId,
+            planned: job.planned,
+            stepIndex: rest.index,
             stepName: rest.name,
             reason: eligible.length === 0 ? `「${step.name}」を担当できる設備がありません` : '稼働できる日が見つかりません',
           })
@@ -298,11 +303,39 @@ function describeCrewDays(scenario: Scenario, planStart: IsoDate, staffing: Staf
   return days
 }
 
+// The Lot number the pieces not yet released will get: the order's highest number after
+// a - or _ plus one, written the same way (L1034-2 → L1034-3), or L<order>-1 when it has
+// none. Numbers in taken, real or already given to other orders, are skipped.
+export function plannedLotId(orderId: string, lots: Lot[], taken = new Set(lots.map((lot) => lot.id))): string {
+  const numbered = lots
+    .filter((lot) => lot.orderId === orderId)
+    .map((lot) => /^(.*[-_])(\d+)$/.exec(lot.id))
+    .filter((match) => match !== null)
+    .sort((a, b) => Number(b[2]) - Number(a[2]))
+  const [prefix, digits] = numbered.length > 0 ? [numbered[0][1], numbered[0][2]] : [`L${orderId}-`, '0']
+  const make = (number: number) => `${prefix}${String(number).padStart(digits.length, '0')}`
+  let next = Number(digits) + 1
+  while (taken.has(make(next))) next += 1
+  taken.add(make(next))
+  return make(next)
+}
+
 function buildJobs(scenario: Scenario, planStart: IsoDate, workEnd: number): Job[] {
   const { data } = scenario
   const demands = new Map(orderDemands(data, planStart).map((demand) => [demand.orderId, demand]))
   const orders = [...data.orders].sort((a, b) => a.due.localeCompare(b.due) || a.id.localeCompare(b.id))
   const jobs: Job[] = []
+  // Planned Lot numbers go out in order of order number, so a what-if that moves due
+  // dates or needs does not move them.
+  const lotIds = new Set(data.lots.map((lot) => lot.id))
+  const released = (orderId: string) =>
+    data.lots.filter((lot) => lot.orderId === orderId).reduce((total, lot) => total + lot.quantity, 0)
+  const plannedIds = new Map(
+    [...data.orders]
+      .filter((order) => order.quantity > released(order.id))
+      .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))
+      .map((order) => [order.id, plannedLotId(order.id, data.lots, lotIds)]),
+  )
 
   for (const order of orders) {
     const route = data.routes[order.partNumber] ?? []
@@ -346,7 +379,7 @@ function buildJobs(scenario: Scenario, planStart: IsoDate, workEnd: number): Job
       const materialDay = order.materialOn ? daysBetween(planStart, order.materialOn) : 0
       jobs.push({
         ...base,
-        lotId: `${order.id}-未投入`,
+        lotId: plannedIds.get(order.id) ?? plannedLotId(order.id, data.lots, lotIds),
         quantity: unreleased,
         planned: true,
         steps: stepsFrom(0, unreleased),

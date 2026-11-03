@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createSampleData } from '../../sample-data/sample'
 import { compareSchedules } from './compare'
 import { buildScenario, ChangeError, type Change } from './scenario'
-import { schedule } from './scheduler'
+import { plannedLotId, schedule } from './scheduler'
 import { createDefaultSettings } from './settings'
 import type { Attendance, Crew, Equipment, Lot, Order, Part, PlantData, Routes, SetupRule, Settings } from './types'
 
@@ -157,7 +157,7 @@ describe('schedule', () => {
     })
 
     expect(result.unscheduled).toEqual([
-      { lotId: '1-未投入', orderId: '1', stepName: '塗装', reason: '「塗装」を担当できる設備がありません' },
+      { lotId: 'L1-1', orderId: '1', planned: true, stepIndex: 1, stepName: '塗装', reason: '「塗装」を担当できる設備がありません' },
     ])
     expect(result.orders[0]).toMatchObject({ status: 'unscheduled', late: true })
   })
@@ -217,6 +217,21 @@ describe('schedule', () => {
       ['3', 15],
       ['4', 50],
     ])
+  })
+
+  it('sets up the first job from the part the machine ran last', () => {
+    const input = {
+      parts: [part('R1', '丸物'), part('S1', '角物')],
+      setupRules: [{ process: '加工', fromShape: '角物', toShape: '丸物', minutes: 25 }],
+      routes: { R1: oneStep('加工', 60), S1: oneStep('加工', 60) },
+      orders: [order('1', 'R1', 1, '2026-11-10')],
+    }
+    const after = (lastPart?: string) =>
+      plan({ ...input, equipment: [{ ...machine('M1', '加工', 50), lastPart }] }).operations[0].setupMinutes
+
+    expect(after()).toBe(0)
+    expect(after('R1')).toBe(0)
+    expect(after('S1')).toBe(25)
   })
 
   it('makes what is needed this month before what is due earlier but needed later', () => {
@@ -403,5 +418,28 @@ describe('compareSchedules', () => {
       shiftDays: 1,
     })
     expect(comparison.lateAfter).toBe(1)
+  })
+})
+
+describe('plannedLotId', () => {
+  const lot = (id: string, orderId: string): Lot => ({ id, orderId, quantity: 1, stepIndex: 0, arrivedOn: TUESDAY })
+
+  it("continues the order's own numbering", () => {
+    expect(plannedLotId('1034', [lot('L1034-1', '1034'), lot('L1034-2', '1034')])).toBe('L1034-3')
+    expect(plannedLotId('7', [lot('7-09', '7')])).toBe('7-10')
+  })
+
+  it('starts at 1 for an order with no lot and skips numbers already taken', () => {
+    expect(plannedLotId('1045', [])).toBe('L1045-1')
+    expect(plannedLotId('1045', [lot('L1045-1', '9999')])).toBe('L1045-2')
+    expect(plannedLotId('1034', [lot('L1034', '1034')])).toBe('L1034-1')
+  })
+
+  it('gives each order its own number when lots are numbered across the plant', () => {
+    const lots = [lot('LOT-101', '1001'), lot('LOT-102', '1002')]
+    const taken = new Set(lots.map((item) => item.id))
+
+    expect(plannedLotId('1001', lots, taken)).toBe('LOT-103')
+    expect(plannedLotId('1002', lots, taken)).toBe('LOT-104')
   })
 })

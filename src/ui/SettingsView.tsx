@@ -9,6 +9,7 @@ import {
   List,
   Modal,
   Paper,
+  Select,
   Slider,
   Stack,
   Switch,
@@ -34,6 +35,9 @@ const PART_NUMBERS: { key: PartNumberKey; label: string; suffix: string }[] = [
   { key: 'stock', label: '在庫', suffix: ' 個' },
   { key: 'monthlyUsage', label: '月間の出荷数', suffix: ' 個' },
 ]
+
+// Select needs a value for "none"; an equipment without a last part keeps an empty one.
+const NO_LAST_PART = 'none'
 
 const WEEKDAYS = [
   { day: 1, label: '月' },
@@ -76,6 +80,22 @@ export function SettingsView({ app }: { app: AppState }) {
       equipment: data.equipment.map((item) => (item.id === id ? { ...item, [key]: clamp(value, 0, 1_000_000) } : item)),
     })
   }
+
+  const setLastPart = (id: string, lastPart: string) => {
+    app.updateData({
+      ...data,
+      equipment: data.equipment.map((item) =>
+        item.id === id ? { ...item, lastPart: lastPart === NO_LAST_PART ? '' : lastPart } : item,
+      ),
+    })
+  }
+  // The parts whose route passes the equipment's process: the only ones it can have run.
+  const lastPartOptions = (process: string) => [
+    { value: NO_LAST_PART, label: 'なし' },
+    ...data.parts
+      .filter((part) => data.routes[part.partNumber]?.some((step) => step.name === process))
+      .map((part) => ({ value: part.partNumber, label: `${part.partNumber}　${part.shape}` })),
+  ]
 
   const setPartNumber = (partNumber: string, key: PartNumberKey, value: number) => {
     app.updateData({
@@ -316,7 +336,7 @@ export function SettingsView({ app }: { app: AppState }) {
           設備
         </Title>
         <Paper withBorder>
-          <Table.ScrollContainer minWidth={600}>
+          <Table.ScrollContainer minWidth={760}>
             <Table verticalSpacing="xs" horizontalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>
@@ -324,6 +344,7 @@ export function SettingsView({ app }: { app: AppState }) {
                   <Table.Th>担当工程</Table.Th>
                   <Table.Th w={130}>段取り</Table.Th>
                   <Table.Th w={130}>1時間の運転費</Table.Th>
+                  <Table.Th w={160}>直前の型番</Table.Th>
                   <Table.Th w={80}>止める</Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -354,6 +375,16 @@ export function SettingsView({ app }: { app: AppState }) {
                         value={equipment.hourlyCost}
                         onCommit={(value) => setEquipmentNumber(equipment.id, 'hourlyCost', value)}
                         aria-label={`${equipment.name}の1時間の運転費`}
+                      />
+                    </Table.Td>
+                    <Table.Td>
+                      <Select
+                        size="xs"
+                        data={lastPartOptions(equipment.process)}
+                        value={equipment.lastPart || NO_LAST_PART}
+                        onChange={(value) => setLastPart(equipment.id, value ?? NO_LAST_PART)}
+                        allowDeselect={false}
+                        aria-label={`${equipment.name}の直前の型番`}
                       />
                     </Table.Td>
                     <Table.Td>

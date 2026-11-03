@@ -22,7 +22,7 @@ export const COLUMNS = {
     monthlyUsage: '月間の出荷数',
   },
   routes: { partNumber: '型番', order: '順番', step: '工程名', minutes: '1個あたりの分' },
-  equipment: { id: '設備ID', name: '設備名', process: '担当工程', setup: '段取りの分', hourlyCost: '1時間の運転費' },
+  equipment: { id: '設備ID', name: '設備名', process: '担当工程', setup: '段取りの分', hourlyCost: '1時間の運転費', lastPart: '直前の型番' },
   setupRules: { process: '工程名', fromShape: '前の形状', toShape: '次の形状', minutes: '段取りの分' },
   crews: { name: '班名', processes: '担当工程', people: '人数' },
   attendance: { crew: '班名', date: '日付', people: '人数' },
@@ -66,6 +66,7 @@ export function toPlantRows(data: PlantData): SheetRows {
       [equipment.process]: item.process,
       [equipment.setup]: item.setupMinutes,
       [equipment.hourlyCost]: item.hourlyCost,
+      [equipment.lastPart]: item.lastPart ?? '',
     })),
     [SHEETS.setupRules]: data.setupRules.map((rule) => ({
       [setupRules.process]: rule.process,
@@ -161,14 +162,20 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
     const process = text(row[c.process])
     const setup = number(row[c.setup]) ?? 0
     const hourlyCost = number(row[c.hourlyCost] ?? row[PREVIOUS_HOURLY_COST]) ?? 0
+    const lastPart = text(row[c.lastPart])
     if (!id || !process) return errors.push(`${where}：設備IDと担当工程を入れてください`)
     if (equipment.some((item) => item.id === id)) return errors.push(`${where}：設備ID「${id}」が重複しています`)
+    if (lastPart && !routes[lastPart]) return errors.push(`${where}：直前の型番「${lastPart}」が工程表にありません`)
+    if (lastPart && !routes[lastPart].some((step) => step.name === process)) {
+      return errors.push(`${where}：直前の型番「${lastPart}」の工程表に「${process}」がありません`)
+    }
     equipment.push({
       id,
       name: text(row[c.name]) || id,
       process,
       setupMinutes: Math.max(0, setup),
       hourlyCost: Math.max(0, hourlyCost),
+      ...(lastPart ? { lastPart } : {}),
     })
   })
 
