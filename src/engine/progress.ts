@@ -1,5 +1,5 @@
 import { daysBetween } from './dates'
-import type { OrderDemand } from './demand'
+import { dailyUsage, lastDayOfMonth, type OrderDemand } from './demand'
 import type { IsoDate, Lot, Order, PlantData, RouteStep } from './types'
 
 export type StepProgress = {
@@ -162,6 +162,45 @@ export function summarizeWip(data: PlantData, demands: OrderDemand[]): WipColumn
     ) as unknown as Record<Urgency, WipCell>
     return { kind, process, crew: process === null ? null : (crewOf.get(process) ?? null), thisMonth: null, cells }
   }
+}
+
+// How far back in the route this month's shipments reach for one part. The pieces to ship
+// by the end of this month beyond stock are covered by the lots nearest to finished first,
+// then by the pieces not yet released; what is left after both is short.
+export type MonthReach = {
+  partNumber: string
+  // Pieces to ship by the end of this month that stock does not cover.
+  need: number
+  reach:
+    | { kind: 'lots'; stepIndex: number; stepName: string; pieces: number }
+    | { kind: 'unreleased'; pieces: number }
+    | { kind: 'short'; pieces: number }
+}
+
+export function monthReach(data: PlantData, today: IsoDate): MonthReach[] {
+  const days = daysBetween(today, lastDayOfMonth(today)) + 1
+  return data.parts.flatMap((part): MonthReach[] => {
+    const route = data.routes[part.partNumber]
+    if (!route) return []
+    // A hair under, so a need that is a whole number in exact arithmetic stays one.
+    const need = Math.ceil(dailyUsage(part) * days - part.stock - 1e-9)
+    if (need <= 0) return []
+    const orders = data.orders.filter((order) => order.partNumber === part.partNumber)
+    const lots = data.lots.filter((lot) => orders.some((order) => order.id === lot.orderId))
+    const reach = (pieces: number, kind: 'unreleased' | 'short') => ({ partNumber: part.partNumber, need, reach: { kind, pieces } })
+
+    let covered = 0
+    for (let index = route.length - 1; index >= 0; index -= 1) {
+      const here = sum(lots.filter((lot) => lot.stepIndex === index).map((lot) => lot.quantity))
+      if (covered + here >= need) {
+        return [{ partNumber: part.partNumber, need, reach: { kind: 'lots', stepIndex: index, stepName: route[index].name, pieces: need - covered } }]
+      }
+      covered += here
+    }
+    const unreleased = sum(orders.map((order) => order.quantity)) - sum(lots.map((lot) => lot.quantity))
+    if (covered + unreleased >= need) return [reach(need - covered, 'unreleased')]
+    return [reach(need - covered - unreleased, 'short')]
+  })
 }
 
 export function stagnantDays(lot: Lot, today: IsoDate): number {

@@ -3,6 +3,7 @@ import { orderDemands, replenishments } from '../engine/demand'
 import { monthlyOutlook, unusedChanges, type MonthlyOutlook } from '../engine/economics'
 import { runPlan, type PlanState } from '../engine/plan'
 import { summarizeProgress } from '../engine/progress'
+import { deliveriesOf } from '../engine/records'
 import { ChangeError, describeChange, parseChange, sameChange, type Change } from '../engine/scenario'
 import type { IsoDate, PlantData } from '../engine/types'
 import { TOOL_NAMES } from './toolSchemas'
@@ -183,6 +184,16 @@ export function describeSituation(state: PlanState) {
         forecastFinish: forecast?.finishAt ?? null,
         lateDays: forecast?.lateDays ?? null,
         status: forecast?.status ?? 'done',
+        deliveries: deliveriesOf(data, order.id, forecast).map(
+          ({ customer, quantity, requested, answered, daysLate, unplanned }) => ({
+            customer,
+            quantity,
+            requested,
+            answered,
+            daysLate,
+            unplanned,
+          }),
+        ),
       }
     }),
     unscheduled: result.unscheduled,

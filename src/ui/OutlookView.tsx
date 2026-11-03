@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { dailyUsage, orderDemands, replenishments, type PriorityClass, type Replenishment } from '../engine/demand'
 import { monthlyOutlook } from '../engine/economics'
 import type { Plan } from '../engine/plan'
+import { materialCover, type MaterialCover } from '../engine/records'
 import { describeChange, type Change } from '../engine/scenario'
 import type { CrewDay } from '../engine/scheduler'
 import type { IsoDate } from '../engine/types'
@@ -25,7 +26,15 @@ const CREW_COLUMN_WIDTH = 96
 
 export function ClassBadge({ value }: { value: PriorityClass }) {
   return (
-    <Badge variant="outline" color={CLASS_COLORS[value]} radius="sm" size="sm" fz="xs" miw="max-content">
+    <Badge
+      variant="outline"
+      color={CLASS_COLORS[value]}
+      radius="sm"
+      size="sm"
+      fz="xs"
+      miw="max-content"
+      className={`class-badge-${value.toLowerCase()}`}
+    >
       {CLASS_LABELS[value]}
     </Badge>
   )
@@ -45,12 +54,20 @@ export function OutlookView({ plan, today, onAdopt }: Props) {
   }, [added])
   const add = (item: Replenishment) => {
     const change: Change = { kind: 'addOrder', partNumber: item.partNumber, quantity: item.quantity, due: item.needBy }
+    // The plan does not wait for material it has no arrival date for, so the record says so.
+    const cover = materialCover(data, item.partNumber, item.quantity)
+    const material =
+      cover?.kind === 'partly'
+        ? `材料は${cover.pieces}個分しかなく、${cover.toOrder}個分は手配が要る（計画は入荷を待たずに組んでいる）。`
+        : cover?.kind === 'none'
+          ? `材料がなく、${cover.toOrder}個分の手配が要る（計画は入荷を待たずに組んでいる）。`
+          : ''
     onAdopt?.({
       title: `${item.partNumber}の足りない分を追加`,
       changes: [change],
       labels: [describeChange(change, data)],
       reason: `来月末までの出荷に、在庫と注残では${item.quantity}個足りない`,
-      tradeoff: '作る分の材料費・労務費・設備の運転費がかかり、同じ設備を使う注番が後ろにずれることがある',
+      tradeoff: `${material}作る分の材料費・労務費・設備の運転費がかかり、同じ設備を使う注番が後ろにずれることがある`,
       note: '',
     })
     setAdded(item.partNumber)
@@ -256,21 +273,24 @@ export function OutlookView({ plan, today, onAdopt }: Props) {
                       </Table.Td>
                       <Table.Td>
                         {shortfall ? (
-                          <Group gap={6}>
-                            <Text size="sm" className="tabular" style={{ whiteSpace: 'nowrap' }}>
-                              {shortfall.quantity}個　{shortDate(shortfall.needBy)}までに
-                            </Text>
-                            {onAdopt && (
-                              <Button
-                                size="xs"
-                                variant="default"
-                                onClick={() => add(shortfall)}
-                                aria-label={`${part.partNumber}の足りない分${shortfall.quantity}個を計画に反映する`}
-                              >
-                                計画に反映する
-                              </Button>
-                            )}
-                          </Group>
+                          <Stack gap={4}>
+                            <Group gap={6}>
+                              <Text size="sm" className="tabular" style={{ whiteSpace: 'nowrap' }}>
+                                {shortfall.quantity}個　{shortDate(shortfall.needBy)}までに
+                              </Text>
+                              {onAdopt && (
+                                <Button
+                                  size="xs"
+                                  variant="default"
+                                  onClick={() => add(shortfall)}
+                                  aria-label={`${part.partNumber}の足りない分${shortfall.quantity}個を計画に反映する`}
+                                >
+                                  計画に反映する
+                                </Button>
+                              )}
+                            </Group>
+                            <MaterialLine cover={materialCover(data, part.partNumber, shortfall.quantity)} />
+                          </Stack>
                         ) : added === part.partNumber ? (
                           <div ref={addedRef} tabIndex={-1} style={{ width: 'fit-content' }}>
                             <Badge color="teal" variant="outline" size="lg" radius="sm" leftSection={<IconCheck size={14} />}>
@@ -292,6 +312,22 @@ export function OutlookView({ plan, today, onAdopt }: Props) {
         </Paper>
       </section>
     </Stack>
+  )
+}
+
+// Whether material on hand starts the pieces short, in the words a planner acts on.
+export function MaterialLine({ cover }: { cover: MaterialCover | null }) {
+  if (!cover) return null
+  const text =
+    cover.kind === 'ready'
+      ? '材料あり：すぐ投入できる'
+      : cover.kind === 'partly'
+        ? `材料は${cover.pieces}個分：${cover.toOrder}個分は手配から`
+        : '材料なし：手配から'
+  return (
+    <Text size="sm" style={{ whiteSpace: 'nowrap' }}>
+      {text}
+    </Text>
   )
 }
 

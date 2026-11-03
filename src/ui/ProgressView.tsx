@@ -1,4 +1,5 @@
 import {
+  Anchor,
   Badge,
   CloseButton,
   Group,
@@ -6,36 +7,52 @@ import {
   SegmentedControl,
   SimpleGrid,
   Stack,
+  Switch,
   Table,
   Text,
+  TextInput,
   Title,
   VisuallyHidden,
 } from '@mantine/core'
 import { useReducedMotion } from '@mantine/hooks'
-import { IconCalendarDue, IconClockExclamation, IconPackageOff } from '@tabler/icons-react'
+import {
+  IconCalendarDue,
+  IconChevronDown,
+  IconChevronUp,
+  IconClockExclamation,
+  IconPackageOff,
+  IconSearch,
+  IconSelector,
+} from '@tabler/icons-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
-import { orderDemands, type PriorityClass } from '../engine/demand'
+import { orderDemands, type OrderDemand, type PriorityClass } from '../engine/demand'
+import { monthlyOutlook, type Shortage } from '../engine/economics'
 import type { Plan } from '../engine/plan'
+import { deliveriesOf, lotHistory, materialCover, type Delivery } from '../engine/records'
 import {
+  monthReach,
   stagnantDays,
   summarizeProgress,
   summarizeWip,
   URGENCIES,
+  type MonthReach,
   type ProgressSummary,
   type Urgency,
   type WipCell,
   type WipColumn,
 } from '../engine/progress'
 import type { OrderForecast } from '../engine/scheduler'
-import type { IsoDate, Lot, Order } from '../engine/types'
+import type { Actual, IsoDate, Lot, Order } from '../engine/types'
 import { percent, shortDate, shortDateTime } from './format'
-import { ClassBadge } from './OutlookView'
+import { ClassBadge, MaterialLine } from './OutlookView'
 
 type Props = {
   plan: Plan
   today: IsoDate
   warningDays: number
+  // A lot to open on, asked for from the Gantt chart.
+  focus: { orderId: string; lotId: string } | null
 }
 
 type Row = {
@@ -48,8 +65,11 @@ type Row = {
   priorityClass: PriorityClass | null
 }
 
+type SortKey = 'due' | 'finish' | 'progress'
+
 type Selection =
   | { kind: 'row'; rowKey: string; step: number | null }
+  | { kind: 'deliveries'; orderId: string }
   | { kind: 'board'; column: number | null; urgency: Urgency | null }
 
 const URGENCY_LABELS: Record<Urgency, string> = {
@@ -59,9 +79,12 @@ const URGENCY_LABELS: Record<Urgency, string> = {
   C: 'C 以降',
 }
 
-export function ProgressView({ plan, today, warningDays }: Props) {
+export function ProgressView({ plan, today, warningDays, focus }: Props) {
   const [mode, setMode] = useState<'order' | 'part'>('order')
-  const [selection, setSelection] = useState<Selection | null>(null)
+  // The tab is drawn afresh each time it opens, so a lot asked for opens its order's list.
+  const [selection, setSelection] = useState<Selection | null>(() =>
+    focus ? { kind: 'row', rowKey: `o:${focus.orderId}`, step: null } : null,
+  )
   const { data } = plan.scenario
   const forecasts = useMemo(
     () => new Map(plan.result.orders.map((forecast) => [forecast.orderId, forecast])),
@@ -87,22 +110,79 @@ export function ProgressView({ plan, today, warningDays }: Props) {
     [data, forecasts],
   )
 
-  const wip = useMemo(() => summarizeWip(data, orderDemands(data, today)), [data, today])
+  const demandList = useMemo(() => orderDemands(data, today), [data, today])
+  const demands = new Map(demandList.map((demand) => [demand.orderId, demand]))
+  const wip = useMemo(() => summarizeWip(data, demandList), [data, demandList])
+  const shortages = useMemo(() => monthlyOutlook(plan, today).shortages, [plan, today])
+  const reaches = useMemo(() => new Map(monthReach(data, today).map((item) => [item.partNumber, item])), [data, today])
   const lateOrders = new Set(plan.result.orders.filter((forecast) => forecast.late).map((forecast) => forecast.orderId))
 
-  const rows = mode === 'order' ? orderRows : partRows
+  // Narrowing and order of the rows: a search over orders, part numbers and lots, finished
+  // rows hidden, only rows with lots that have stopped, and a sort by a column.
+  const [query, setQuery] = useState('')
+  const [hideFinished, setHideFinished] = useState(false)
+  const [stoppedOnly, setStoppedOnly] = useState(false)
+  const [sort, setSort] = useState<{ key: SortKey; descending: boolean }>({ key: 'due', descending: false })
+  // Lots on the floor, and the Lot numbers the pieces not yet released will get.
+  const lotIdsOf = useMemo(() => {
+    const ids = new Map<string, Set<string>>()
+    const add = (orderId: string, lotId: string) => ids.set(orderId, (ids.get(orderId) ?? new Set()).add(lotId))
+    data.lots.forEach((lot) => add(lot.orderId, lot.id))
+    plan.result.operations.filter((operation) => operation.planned).forEach((operation) => add(operation.orderId, operation.lotId))
+    return ids
+  }, [data, plan])
+  const matches = (row: Row) => {
+    const words = query.trim().toLowerCase()
+    if (!words) return true
+    const lotIds = row.orders.flatMap((order) => [...(lotIdsOf.get(order.id) ?? [])])
+    return [row.label, ...row.orders.map((order) => `${order.id} ${order.partNumber}`), ...lotIds]
+      .some((value) => value.toLowerCase().includes(words))
+  }
+  const sortValue = (row: Row): string | number => {
+    if (sort.key === 'finish') return row.forecast.finish ?? '9999'
+    if (sort.key === 'progress') return row.summary.ratio
+    return row.orders.map((order) => order.due).sort()[0] ?? ''
+  }
+  const rows = (mode === 'order' ? orderRows : partRows)
+    .filter(matches)
+    .filter((row) => !hideFinished || row.summary.finished < row.summary.quantity)
+    .filter((row) => !stoppedOnly || row.summary.wipLots.some((lot) => stagnantDays(lot, today) >= warningDays))
+    .sort((a, b) => {
+      const [x, y] = [sortValue(a), sortValue(b)]
+      const order = x < y ? -1 : x > y ? 1 : 0
+      return sort.descending ? -order : order
+    })
+  const sortBy = (key: SortKey) =>
+    setSort((current) => ({ key, descending: current.key === key ? !current.descending : false }))
+  const ariaSort = (key: SortKey) => (sort.key === key ? (sort.descending ? 'descending' : 'ascending') : undefined)
   const stepCount = Math.max(1, ...rows.map((row) => row.route.length))
   const selectedRow = selection?.kind === 'row' ? (rows.find((row) => row.key === selection.rowKey) ?? null) : null
+  // A panel belongs to its row, so it closes when narrowing hides the row, and does not
+  // come back on its own when the row does.
+  const selectionHidden =
+    (selection?.kind === 'row' && !selectedRow) ||
+    (selection?.kind === 'deliveries' &&
+      !rows.some((row) => row.orders.length === 1 && row.orders[0].id === selection.orderId))
+  if (selectionHidden) setSelection(null)
   const isWarned = (lot: Lot) => stagnantDays(lot, today) >= warningDays
-  // Closing a panel returns focus to what opened it.
+  // Closing a panel returns focus to what opened it. A panel the Gantt chart opened has no
+  // opener here, so focus goes to the search box above the rows.
   const opener = useRef<HTMLElement | null>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
   const open = (next: Selection) => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setSelection(next)
   }
   const close = () => {
     setSelection(null)
-    opener.current?.focus()
+    ;(opener.current?.isConnected ? opener.current : searchRef.current)?.focus()
+  }
+  // Keyboard focus goes to the lot the Gantt chart asked for once, when the tab opens.
+  const lotFocused = useRef(false)
+  const claimLotFocus = () => {
+    if (lotFocused.current) return false
+    lotFocused.current = true
+    return true
   }
   const panelProps = { plan, today, warningDays, onClose: close }
 
@@ -136,7 +216,7 @@ export function ProgressView({ plan, today, warningDays }: Props) {
             : open({ kind: 'board', column, urgency })
         }
       />
-      {selection?.kind === 'board' && <LotPanel {...boardPanel(wip, selection)} {...panelProps} />}
+      {selection?.kind === 'board' && <LotPanel key={boardPanel(wip, selection).title} {...boardPanel(wip, selection)} {...panelProps} />}
 
       <SegmentedControl
         w="fit-content"
@@ -148,6 +228,27 @@ export function ProgressView({ plan, today, warningDays }: Props) {
         ]}
         aria-label="表示の単位"
       />
+      <Group gap="md" wrap="wrap" align="center">
+        <TextInput
+          ref={searchRef}
+          value={query}
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          placeholder="注番・型番・Lot"
+          aria-label="注番・型番・Lot で絞り込む"
+          leftSection={<IconSearch size={16} aria-hidden />}
+          w={220}
+        />
+        <Switch
+          checked={hideFinished}
+          onChange={(event) => setHideFinished(event.currentTarget.checked)}
+          label="完了を隠す"
+        />
+        <Switch
+          checked={stoppedOnly}
+          onChange={(event) => setStoppedOnly(event.currentTarget.checked)}
+          label={`${warningDays}日以上止まっているLotがあるものだけ`}
+        />
+      </Group>
 
       <Paper withBorder className="table-wrap">
         <table className="progress-table">
@@ -158,18 +259,21 @@ export function ProgressView({ plan, today, warningDays }: Props) {
                   <th>注番</th>
                   <th>型番</th>
                   <th className="num">数量</th>
-                  <th>納期</th>
+                  <SortHeader label="納期" sort={ariaSort('due')} onSort={() => sortBy('due')} />
+                  <th>必要日</th>
                 </>
               ) : (
                 <>
                   <th>型番</th>
                   <th className="num">注残</th>
                   <th className="num">数量</th>
-                  <th>最短納期</th>
+                  <SortHeader label="最短納期" sort={ariaSort('due')} onSort={() => sortBy('due')} />
+                  <th>欠品の見込み</th>
+                  <th>今月分</th>
                 </>
               )}
-              <th>完成見込み</th>
-              <th className="col-overall">工程全体</th>
+              <SortHeader label="完成見込み" sort={ariaSort('finish')} onSort={() => sortBy('finish')} />
+              <SortHeader label="工程全体" sort={ariaSort('progress')} onSort={() => sortBy('progress')} className="col-overall" />
               {Array.from({ length: stepCount }, (_, index) => (
                 <th key={index}>工程{index + 1}</th>
               ))}
@@ -179,7 +283,12 @@ export function ProgressView({ plan, today, warningDays }: Props) {
             {rows.map((row) => (
               <tr
                 key={row.key}
-                className={selection?.kind === 'row' && selection.rowKey === row.key ? 'is-selected' : undefined}
+                className={
+                  (selection?.kind === 'row' && selection.rowKey === row.key) ||
+                  (selection?.kind === 'deliveries' && row.orders.length === 1 && selection.orderId === row.orders[0].id)
+                    ? 'is-selected'
+                    : undefined
+                }
               >
                 {mode === 'order' ? (
                   <>
@@ -191,7 +300,22 @@ export function ProgressView({ plan, today, warningDays }: Props) {
                     </td>
                     <td>{row.orders[0].partNumber}</td>
                     <td className="num">{row.summary.quantity}</td>
-                    <td>{shortDate(row.orders[0].due)}</td>
+                    <td>
+                      <DueCell
+                        orderId={row.orders[0].id}
+                        due={row.orders[0].due}
+                        deliveries={deliveriesOf(data, row.orders[0].id, forecasts.get(row.orders[0].id))}
+                        pressed={selection?.kind === 'deliveries' && selection.orderId === row.orders[0].id}
+                        onOpen={() =>
+                          selection?.kind === 'deliveries' && selection.orderId === row.orders[0].id
+                            ? close()
+                            : open({ kind: 'deliveries', orderId: row.orders[0].id })
+                        }
+                      />
+                    </td>
+                    <td>
+                      <NeedBy demand={demands.get(row.orders[0].id)} due={row.orders[0].due} />
+                    </td>
                   </>
                 ) : (
                   <>
@@ -199,6 +323,12 @@ export function ProgressView({ plan, today, warningDays }: Props) {
                     <td className="num">{row.orders.length}件</td>
                     <td className="num">{row.summary.quantity}</td>
                     <td>{shortDate(row.orders.map((order) => order.due).sort()[0])}</td>
+                    <td>
+                      <PartShortages shortages={shortages.filter((shortage) => shortage.partNumber === row.label)} />
+                    </td>
+                    <td>
+                      <MonthNeed reach={reaches.get(row.label)} data={data} />
+                    </td>
                   </>
                 )}
                 <td className={row.forecast.late ? 'late' : undefined}>
@@ -230,20 +360,47 @@ export function ProgressView({ plan, today, warningDays }: Props) {
                 ))}
               </tr>
             ))}
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={99} className="wip-empty">
+                  当てはまる注残はありません
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </Paper>
 
       {selectedRow && selection?.kind === 'row' && (
         <LotPanel
+          key={`${selectedRow.key}-${selection.step}`}
           title={
             selection.step === null
               ? `${selectedRow.label} の仕掛Lot一覧（全工程）`
               : `${selectedRow.label}・工程${selection.step + 1} ${selectedRow.route[selection.step]} の仕掛Lot一覧`
           }
           lots={selection.step === null ? selectedRow.summary.wipLots : selectedRow.summary.steps[selection.step].lots}
-          unreleased={[]}
+          // The whole order, and its first step, include the pieces not yet released, under
+          // their planned Lot number.
+          unreleased={
+            selection.step === null || selection.step === 0
+              ? selectedRow.orders.flatMap((order) => {
+                  const quantity = order.quantity - data.lots.filter((lot) => lot.orderId === order.id).reduce((total, lot) => total + lot.quantity, 0)
+                  return quantity > 0 ? [{ orderId: order.id, quantity }] : []
+                })
+              : []
+          }
+          highlightLot={focus?.lotId}
+          claimFocus={claimLotFocus}
           {...panelProps}
+        />
+      )}
+      {selection?.kind === 'deliveries' && (
+        <DeliveriesPanel
+          orderId={selection.orderId}
+          deliveries={deliveriesOf(data, selection.orderId, forecasts.get(selection.orderId))}
+          finish={forecasts.get(selection.orderId)?.finishAt ?? null}
+          onClose={close}
         />
       )}
     </Stack>
@@ -251,7 +408,7 @@ export function ProgressView({ plan, today, warningDays }: Props) {
 
   function switchMode(next: 'order' | 'part') {
     setMode(next)
-    if (selection?.kind === 'row') setSelection(null)
+    if (selection?.kind === 'row' || selection?.kind === 'deliveries') setSelection(null)
   }
 }
 
@@ -276,6 +433,227 @@ function buildRow(
     forecast: { finish: finishes.sort().at(-1) ?? null, late: lateCount > 0, lateCount: orders.length > 1 ? lateCount : 0 },
     priorityClass: orders.length === 1 ? (orderForecasts[0]?.priorityClass ?? null) : null,
   }
+}
+
+// A column header that sorts the rows; pressing it again turns the order around.
+function SortHeader({
+  label,
+  sort,
+  onSort,
+  className,
+}: {
+  label: string
+  sort: 'ascending' | 'descending' | undefined
+  onSort: () => void
+  className?: string
+}) {
+  return (
+    <th aria-sort={sort} className={className}>
+      <button type="button" className="sort-head" onClick={onSort}>
+        {label}
+        {sort === 'ascending' ? (
+          <IconChevronUp size={12} aria-hidden />
+        ) : sort === 'descending' ? (
+          <IconChevronDown size={12} aria-hidden />
+        ) : (
+          <IconSelector size={12} aria-hidden />
+        )}
+      </button>
+    </th>
+  )
+}
+
+// When an order is needed, and whether stock running out or its due date sets that day.
+// The mark shows only when stock running out comes first; otherwise the due date sets it.
+function NeedBy({ demand, due }: { demand: OrderDemand | undefined; due: IsoDate }) {
+  if (!demand) return <span className="wip-empty">—</span>
+  const stockout = demand.stockoutOn !== null && demand.stockoutOn < due
+  return (
+    <span className="need-by">
+      {stockout && <IconPackageOff size={14} aria-hidden />}
+      {shortDate(demand.needBy)}
+      <VisuallyHidden>{stockout ? '（在庫切れ）' : '（納期）'}</VisuallyHidden>
+    </span>
+  )
+}
+
+function PartShortages({ shortages }: { shortages: Shortage[] }) {
+  if (shortages.length === 0)
+    return (
+      <Text size="sm" c="teal">
+        なし
+      </Text>
+    )
+  return (
+    <Stack gap={0}>
+      {shortages.map((shortage) => (
+        <Text key={shortage.from} size="sm" c="red" className="tabular" style={{ whiteSpace: 'nowrap' }}>
+          {shortDate(shortage.from)}〜{shortage.until ? shortDate(shortage.until) : ''}（最大{shortage.maxShortage}個）
+        </Text>
+      ))}
+    </Stack>
+  )
+}
+
+// How far back in the route this month's shipments reach for the part: to which step's lots,
+// into the pieces not yet released, or past both.
+function MonthNeed({ reach, data }: { reach: MonthReach | undefined; data: Plan['scenario']['data'] }) {
+  if (!reach) return <span className="wip-empty">—</span>
+  const { need } = reach
+  const text =
+    reach.reach.kind === 'lots'
+      ? `工程${reach.reach.stepIndex + 1} ${reach.reach.stepName}まで（${reach.reach.pieces}個）`
+      : reach.reach.kind === 'unreleased'
+        ? `未投入から${reach.reach.pieces}個`
+        : `${reach.reach.pieces}個足りない`
+  return (
+    <Stack gap={0}>
+      <Text size="sm" fw={700} className="tabular">
+        {need}個
+      </Text>
+      <Text size="sm" c={reach.reach.kind === 'short' ? 'red' : undefined} style={{ whiteSpace: 'nowrap' }}>
+        {text}
+      </Text>
+      {reach.reach.kind === 'short' && <MaterialLine cover={materialCover(data, reach.partNumber, reach.reach.pieces)} />}
+    </Stack>
+  )
+}
+
+// The order's due date opens its customer orders; a promise the plan misses, or one not yet
+// answered, shows under it.
+function DueCell({
+  orderId,
+  due,
+  deliveries,
+  pressed,
+  onOpen,
+}: {
+  orderId: string
+  due: IsoDate
+  deliveries: Delivery[]
+  pressed: boolean
+  onOpen: () => void
+}) {
+  // A promise is missed when the forecast comes after it, or when the order cannot be planned.
+  const missed = deliveries.filter(
+    (entry) => entry.answered !== null && (entry.unplanned || (entry.daysLate !== null && entry.daysLate > 0)),
+  ).length
+  const unanswered = deliveries.filter((entry) => entry.answered === null).length
+  const notesId = `due-notes-${orderId}`
+  return (
+    <Stack gap={0} align="flex-start">
+      <Anchor
+        component="button"
+        type="button"
+        size="sm"
+        fw={pressed ? 700 : undefined}
+        aria-pressed={pressed}
+        aria-label={`注番${orderId} 納期${shortDate(due)} 受注と納期回答を開く`}
+        aria-describedby={missed > 0 || unanswered > 0 ? notesId : undefined}
+        onClick={onOpen}
+      >
+        {shortDate(due)}
+      </Anchor>
+      <span id={notesId}>
+        {missed > 0 && (
+          <Text span display="block" size="xs" c="red" fw={700} style={{ whiteSpace: 'nowrap' }}>
+            回答に遅れ{missed}件
+          </Text>
+        )}
+        {unanswered > 0 && (
+          <Text span display="block" size="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>
+            未回答{unanswered}件
+          </Text>
+        )}
+      </span>
+    </Stack>
+  )
+}
+
+// The customer orders behind one open order, each promised date set against the forecast.
+function DeliveriesPanel({
+  orderId,
+  deliveries,
+  finish,
+  onClose,
+}: {
+  orderId: string
+  deliveries: Delivery[]
+  finish: string | null
+  onClose: () => void
+}) {
+  const title = `注番${orderId} の受注と納期回答`
+  const panelRef = useRef<HTMLDivElement>(null)
+  const reduceMotion = useReducedMotion()
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
+  }, [title, reduceMotion])
+
+  return (
+    <Paper component="section" withBorder p="md" aria-label={title} ref={panelRef}>
+      <Group justify="space-between" mb="xs" wrap="nowrap">
+        <Group gap="sm">
+          <Title order={3} size="h5">
+            {title}
+          </Title>
+          <Text size="sm" c="dimmed">
+            完成見込み {finish ? shortDateTime(finish) : '—'}
+          </Text>
+        </Group>
+        <CloseButton onClick={onClose} aria-label="閉じる" />
+      </Group>
+      {deliveries.length === 0 ? (
+        <Text size="sm" c="dimmed">
+          受注の記録はありません
+        </Text>
+      ) : (
+        <Table.ScrollContainer minWidth={620}>
+          <Table striped verticalSpacing={6} horizontalSpacing={8}>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>受注番号</Table.Th>
+                <Table.Th>取引先</Table.Th>
+                <Table.Th ta="right">数量</Table.Th>
+                <Table.Th>希望納期</Table.Th>
+                <Table.Th>回答納期</Table.Th>
+                <Table.Th>完成見込みと比べて</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {deliveries.map((entry) => (
+                <Table.Tr key={entry.id}>
+                  <Table.Th scope="row" fw={400}>
+                    {entry.id}
+                  </Table.Th>
+                  <Table.Td>{entry.customer}</Table.Td>
+                  <Table.Td ta="right" className="tabular">
+                    {entry.quantity}個
+                  </Table.Td>
+                  <Table.Td>{shortDate(entry.requested)}</Table.Td>
+                  <Table.Td>{entry.answered ? shortDate(entry.answered) : '未回答'}</Table.Td>
+                  <Table.Td>
+                    {entry.unplanned ? (
+                      <Text span size="sm" c="red" fw={700}>
+                        計画に入らない
+                      </Text>
+                    ) : entry.daysLate === null ? (
+                      '—'
+                    ) : entry.daysLate > 0 ? (
+                      <Text span size="sm" c="red" fw={700}>
+                        {entry.daysLate}日遅れる
+                      </Text>
+                    ) : (
+                      '間に合う'
+                    )}
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
+      )}
+    </Paper>
+  )
 }
 
 function Metric({ label, value, tone }: { label: string; value: string; tone?: 'red' | 'teal' | 'orange' }) {
@@ -653,6 +1031,8 @@ function LotPanel({
   title,
   lots,
   unreleased,
+  highlightLot,
+  claimFocus,
   plan,
   today,
   warningDays,
@@ -661,6 +1041,8 @@ function LotPanel({
   title: string
   lots: Lot[]
   unreleased: WipCell['unreleased']
+  highlightLot?: string
+  claimFocus?: () => boolean
   plan: Plan
   today: IsoDate
   warningDays: number
@@ -679,6 +1061,7 @@ function LotPanel({
   const entries = [
     ...lots.map((lot) => ({
       key: lot.id,
+      lotId: lot.id,
       lot: lot.id,
       orderId: lot.orderId,
       step: stepLabel(lot.orderId, lot.stepIndex),
@@ -694,6 +1077,7 @@ function LotPanel({
       )
       return {
         key: `${item.orderId}-planned`,
+        lotId: operation?.lotId,
         lot: operation ? `${operation.lotId} 予定` : '未投入',
         orderId: item.orderId,
         step: stepLabel(item.orderId, 0),
@@ -713,6 +1097,14 @@ function LotPanel({
   useEffect(() => {
     panelRef.current?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
   }, [title, reduceMotion])
+  // A lot's own record of the steps it has been through opens under the list.
+  const [historyOf, setHistoryOf] = useState<string | null>(null)
+  const lotIds = new Set(lots.map((lot) => lot.id))
+  // A lot asked for from the Gantt chart is marked, and keyboard focus goes to it the first time.
+  const highlightRef = useRef<HTMLTableRowElement>(null)
+  useEffect(() => {
+    if (highlightLot && claimFocus?.()) highlightRef.current?.focus()
+  }, [highlightLot, claimFocus])
 
   return (
     <Paper component="section" withBorder p="md" aria-label={title} ref={panelRef}>
@@ -750,8 +1142,28 @@ function LotPanel({
               {entries.map((entry) => {
                 const warned = entry.days !== null && entry.days >= warningDays
                 return (
-                  <Table.Tr key={entry.key}>
-                    <Table.Td>{entry.lot}</Table.Td>
+                  <Table.Tr
+                    key={entry.key}
+                    ref={entry.lotId === highlightLot ? highlightRef : undefined}
+                    tabIndex={entry.lotId === highlightLot ? -1 : undefined}
+                    className={entry.lotId === highlightLot ? 'is-chosen' : undefined}
+                    aria-current={entry.lotId === highlightLot || undefined}
+                  >
+                    <Table.Td>
+                      {lotIds.has(entry.lot) ? (
+                        <Anchor
+                          component="button"
+                          type="button"
+                          size="sm"
+                          aria-expanded={historyOf === entry.lot}
+                          onClick={() => setHistoryOf((current) => (current === entry.lot ? null : entry.lot))}
+                        >
+                          {entry.lot}
+                        </Anchor>
+                      ) : (
+                        entry.lot
+                      )}
+                    </Table.Td>
                     <Table.Td>{entry.orderId}</Table.Td>
                     <Table.Td>{entry.step}</Table.Td>
                     <Table.Td ta="right" className="tabular">
@@ -773,6 +1185,82 @@ function LotPanel({
           </Table>
         </Table.ScrollContainer>
       )}
+      {historyOf && (
+        <LotHistory
+          lotId={historyOf}
+          history={lotHistory(data, historyOf)}
+          stepLabel={(stepIndex) => stepLabel(lots.find((lot) => lot.id === historyOf)?.orderId ?? '', stepIndex)}
+          equipmentNames={equipmentNames}
+        />
+      )}
     </Paper>
+  )
+}
+
+// The steps one lot has been through, as recorded on the shop floor.
+function LotHistory({
+  lotId,
+  history,
+  stepLabel,
+  equipmentNames,
+}: {
+  lotId: string
+  history: Actual[]
+  stepLabel: (stepIndex: number) => string
+  equipmentNames: Map<string, string>
+}) {
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const sectionRef = useRef<HTMLDivElement>(null)
+  const reduceMotion = useReducedMotion()
+  // Keyboard focus follows the record that just opened (WCAG 2.4.3), and it scrolls into view.
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true })
+    sectionRef.current?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
+  }, [lotId, reduceMotion])
+
+  return (
+    <Stack gap={6} mt="md" ref={sectionRef}>
+      <Title order={4} size="h6" ref={headingRef} tabIndex={-1}>
+        {lotId} の実績
+      </Title>
+      {history.length === 0 ? (
+        <Text size="sm" c="dimmed">
+          記録はありません
+        </Text>
+      ) : (
+        <Table.ScrollContainer minWidth={560}>
+          <Table verticalSpacing={4} horizontalSpacing={8}>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>工程</Table.Th>
+                <Table.Th>設備</Table.Th>
+                <Table.Th>開始</Table.Th>
+                <Table.Th>終了</Table.Th>
+                <Table.Th ta="right">良品</Table.Th>
+                <Table.Th ta="right">不良</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {history.map((actual) => (
+                <Table.Tr key={actual.stepIndex}>
+                  <Table.Th scope="row" fw={400}>
+                    {stepLabel(actual.stepIndex)}
+                  </Table.Th>
+                  <Table.Td>{equipmentNames.get(actual.equipmentId) ?? actual.equipmentId}</Table.Td>
+                  <Table.Td className="tabular">{shortDateTime(actual.start)}</Table.Td>
+                  <Table.Td className="tabular">{shortDateTime(actual.end)}</Table.Td>
+                  <Table.Td ta="right" className="tabular">
+                    {actual.good}個
+                  </Table.Td>
+                  <Table.Td ta="right" className="tabular" c={actual.defect > 0 ? 'red' : undefined}>
+                    {actual.defect}個
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </Table.ScrollContainer>
+      )}
+    </Stack>
   )
 }

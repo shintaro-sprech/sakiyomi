@@ -1,13 +1,15 @@
 import { read, utils, writeFile, type WorkBook } from 'xlsx'
 
 import type { PlantData } from '../engine/types'
-import { parsePlantRows, SHEETS, toPlantRows, type SheetRows } from './plantRows'
+import { COLUMNS, parsePlantRows, SHEETS, toPlantRows, type SheetRows } from './plantRows'
 
 export function buildWorkbook(data: PlantData): WorkBook {
   const rows = toPlantRows(data)
   const book = utils.book_new()
-  for (const sheet of Object.values(SHEETS)) {
-    utils.book_append_sheet(book, utils.json_to_sheet(rows[sheet]), sheet)
+  // Headers go in even when a sheet has no rows, so a planner sees what to fill in.
+  for (const [key, sheet] of Object.entries(SHEETS)) {
+    const header = Object.values(COLUMNS[key as keyof typeof COLUMNS])
+    utils.book_append_sheet(book, utils.json_to_sheet(rows[sheet], { header }), sheet)
   }
   return book
 }

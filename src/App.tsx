@@ -54,6 +54,8 @@ function App() {
   const wide = useMediaQuery(`(min-width: ${theme.breakpoints.xl})`, true, { getInitialValueInEffect: false })
   const medium = useMediaQuery(`(min-width: ${theme.breakpoints.md})`, true, { getInitialValueInEffect: false })
   const [tab, setTab] = useState<Tab>('outlook')
+  // A lot the Gantt chart asked the progress tab to show, until another tab is picked.
+  const [progressFocus, setProgressFocus] = useState<{ orderId: string; lotId: string } | null>(null)
   const [preview, setPreview] = useState<ProposedOption | null>(null)
   const [chatOpen, setChatOpen] = useState(wide)
   const [navOpened, nav] = useDisclosure(false)
@@ -84,7 +86,13 @@ function App() {
 
   function selectTab(value: Tab) {
     setTab(value)
+    setProgressFocus(null)
     nav.close()
+  }
+
+  function showInProgress(orderId: string, lotId: string) {
+    selectTab('progress')
+    setProgressFocus({ orderId, lotId })
   }
 
   // On a phone the menu and the panel both cover the screen, so only one is open at a time.
@@ -223,9 +231,16 @@ function App() {
           <OutlookView plan={plan} today={planState.today} onAdopt={preview ? undefined : app.adopt} />
         )}
         {tab === 'progress' && (
-          <ProgressView plan={plan} today={planState.today} warningDays={saved.settings.stagnationWarningDays} />
+          <ProgressView
+            plan={plan}
+            today={planState.today}
+            warningDays={saved.settings.stagnationWarningDays}
+            focus={progressFocus}
+          />
         )}
-        {tab === 'gantt' && <GanttView plan={plan} today={planState.today} highlight={preview} />}
+        {tab === 'gantt' && (
+          <GanttView plan={plan} today={planState.today} highlight={preview} onShowInProgress={showInProgress} />
+        )}
         {tab === 'decisions' && <DecisionsView decisions={saved.decisions} onRemove={app.removeDecision} />}
         {tab === 'settings' && <SettingsView app={app} />}
       </AppShell.Main>

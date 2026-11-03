@@ -53,6 +53,26 @@ describe('plant rows', () => {
     expect(data?.crews).toEqual([])
   })
 
+  it('reads a workbook without records of steps or customer orders', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    delete rows[SHEETS.actuals]
+    delete rows[SHEETS.customerOrders]
+    const { data, errors } = parsePlantRows(rows)
+
+    expect(errors).toEqual([])
+    expect(data?.actuals).toEqual([])
+    expect(data?.customerOrders).toEqual([])
+  })
+
+  it('refuses a record of a step the lot has not been through', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    const first = rows[SHEETS.actuals].findIndex((row) => row[COLUMNS.actuals.lotId] === 'L1034-2')
+    rows[SHEETS.actuals][first][COLUMNS.actuals.step] = 3
+    const { errors } = parsePlantRows(rows)
+
+    expect(errors).toContain(`実績の${first + 2}行目：工程番号は、そのLotが通り終えた1〜2にしてください`)
+  })
+
   it('refuses a process in two crews', () => {
     const rows = toPlantRows(createSampleData('2026-11-03'))
     rows[SHEETS.crews][1][COLUMNS.crews.processes] = '切削、溶接'

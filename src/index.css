@@ -26,6 +26,8 @@
   --sk-fill-high: var(--mantine-color-teal-1);
   --sk-class-a-fill: var(--mantine-color-red-1);
   --sk-class-b-fill: var(--mantine-color-orange-1);
+  /* Light enough that colored text and badges on a chosen row keep 4.5:1 (WCAG 1.4.3). */
+  --sk-selected-fill: var(--mantine-color-teal-0);
   --sk-bar-text: var(--mantine-color-white);
   --sk-event: var(--mantine-color-yellow-0);
   --sk-user-bubble: var(--mantine-color-teal-filled);
@@ -53,6 +55,8 @@
   --sk-fill-high: rgb(18 184 134 / 26%);
   --sk-class-a-fill: rgb(250 82 82 / 24%);
   --sk-class-b-fill: rgb(253 126 20 / 22%);
+  /* Opaque, so a table's hover color under the row does not show through. */
+  --sk-selected-fill: color-mix(in srgb, var(--mantine-color-teal-6) 10%, var(--mantine-color-body));
   --sk-event: rgb(250 176 5 / 12%);
   --sk-assistant-bubble: var(--mantine-color-dark-5);
   --sk-mascot-face: var(--mantine-color-gray-0);
@@ -182,7 +186,26 @@ html {
 }
 
 .progress-table tr.is-selected td {
-  background: var(--mantine-primary-color-light);
+  background: var(--sk-selected-fill);
+}
+
+/* Mantine's darkest orange is 4.3:1 on white, so the class B badge is darker in light mode. */
+:root[data-mantine-color-scheme='light'] .class-badge-b {
+  color: rgb(179 59 0);
+  border-color: rgb(179 59 0);
+}
+
+/* The fill is faint, so a bar on the left edge marks the chosen row. */
+.progress-table tr.is-selected td:first-child,
+tr.is-chosen > :first-child {
+  box-shadow: inset 3px 0 0 var(--sk-focus);
+}
+
+/* On the fill of a chosen row, links take the text color and keep their underline for contrast. */
+.progress-table tr.is-selected .mantine-Anchor-root,
+tr.is-chosen .mantine-Anchor-root {
+  color: var(--mantine-color-text);
+  text-decoration: underline;
 }
 
 .progress-table .col-overall {
@@ -299,6 +322,30 @@ html {
   margin-top: 2px;
   font-size: 12px;
   color: var(--sk-danger);
+}
+
+.sort-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.sort-head:focus-visible {
+  outline: 2px solid var(--sk-focus);
+  outline-offset: 2px;
+}
+
+.need-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
 
 .wip-late {
@@ -621,6 +668,37 @@ html {
   background: repeating-linear-gradient(135deg, var(--sk-text-dimmed) 0 2px, transparent 2px 4px);
 }
 
+/* The time now on the first day: the text color, so it reads apart from the late (red) bars.
+   It runs under the bars, so their text stays whole. */
+.gantt-grid {
+  position: relative;
+}
+
+.gantt-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--mantine-color-text);
+  pointer-events: none;
+}
+
+/* Below the dates, in the head row's second line. */
+.gantt-now-tag {
+  position: absolute;
+  bottom: 3px;
+  z-index: 1;
+  border-radius: 3px;
+  background: var(--mantine-color-text);
+  color: var(--mantine-color-body);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .gantt-scroll {
   overflow: auto;
   max-height: calc(100vh - 190px);
@@ -639,7 +717,7 @@ html {
 .gantt-label {
   position: sticky;
   left: 0;
-  z-index: 2;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -696,9 +774,9 @@ html {
 .gantt-head {
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: 4;
   background: var(--sk-surface);
-  min-height: 32px;
+  min-height: 48px;
   font-size: var(--mantine-font-size-xs);
   color: var(--sk-text-dimmed);
 }
@@ -719,7 +797,8 @@ html {
   top: 0;
   bottom: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  padding-top: 6px;
   padding-left: 6px;
   border-left: 1px solid var(--sk-border);
   white-space: nowrap;
@@ -747,6 +826,7 @@ html {
 
 .gantt-bar {
   position: absolute;
+  z-index: 1;
   top: 10px;
   height: 44px;
   display: flex;
@@ -794,7 +874,7 @@ html {
 
 /* A ring for the chosen bar, so the focus outline stays distinct from it. */
 .gantt-bar.is-selected {
-  z-index: 1;
+  z-index: 2;
   box-shadow:
     0 0 0 2px var(--mantine-color-body),
     0 0 0 4px var(--mantine-color-text);
@@ -830,7 +910,7 @@ html {
 
 /* The step of a lot's flow that was clicked, and the part run before an equipment's plan. */
 tr.is-chosen > * {
-  background: var(--mantine-primary-color-light);
+  background: var(--sk-selected-fill);
   font-weight: 700;
 }
 

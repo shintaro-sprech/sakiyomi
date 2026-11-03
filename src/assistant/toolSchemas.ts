@@ -12,14 +12,14 @@ const changeSchema = {
   type: 'object',
   description: [
     '計画に当てる変更。kind ごとに使う項目が違う。',
-    'materialDelay: orderId, days（未投入分の材料の入荷が、暦の日数で何日遅れるか。早まるならマイナス）',
+    'materialDelay: orderId, days（未投入分の材料の入荷が、暦の日数で何日遅れるか。早まるならマイナス。材料は入荷日の0時から使える扱いで、休日に当たっても同じ）',
     'quantity: orderId, quantity（新しい総数量。投入済みの数より少なくはできない）',
     'equipmentDown: equipmentId, from, to（その期間、設備を使わない）',
     'overtime: equipmentId, from, to, minutesPerDay（その期間の稼働日に、終業を何分延ばすか。残業の時間は、延ばした枠のうち実際に動いた分だけ数える。延ばした時間も、その日に班に出ている人数の中で動く）',
     'holidayWork: equipmentId, date（休日に通常の時間で動かす。班の人数とは別に、その設備に1人が出る。休日出勤の時間は、実際に動いた分だけ数える）',
     'expedite: orderId（その注番を最優先で流す）',
     'hold: orderId, until（その日まで着手しない。余力の注番を来月に回すときなど）',
-    'addOrder: partNumber, quantity, due（製造注残を追加する。在庫切れを防ぐ補充など）',
+    'addOrder: partNumber, quantity, due（製造注残を追加する。在庫切れを防ぐ補充など。材料は手元にある扱いで組むので、材料在庫が足りないときは手配が要ることを伝える）',
     'headcount: crew, from, to, people（その期間の稼働日に、班に出る人数そのもの。休む人数や増減ではない。日ごとの予定の人数は get_situation の班の days にある。予定が日によって違うときは、期間を分けて日ごとの人数を書く。同じ日に重なる headcount は、後に当てたものが使われる）',
     '日付は YYYY-MM-DD。期間の from と to は、どちらもその日を含む。設備は equipmentId（例: MC-1）で指定する。',
   ].join('\n'),
@@ -59,7 +59,7 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: TOOL_NAMES.getSituation,
     description:
-      '今の計画の状態を返す。今月の見通し（売上・材料費・労務費・設備の運転費・粗利・残業と休日出勤の時間・遅れる注番・来月末までの欠品）、品目（形状・売価・材料費・在庫・月間の出荷数）、段取り表、班（担当工程・設備・日ごとの人数と、同時に動いた設備の最大数）、設備（1時間の運転費・直前の型番）と負荷、型番ごとの工程、注番ごとの区分（A 今月必要／B 来月必要／C それ以降）・必要日・進み具合・完成見込み。担当者が採用済みの変更も含む。欠品の maxShortage はその期間でいちばん多く足りない個数で、until が null なのは、来月末までに解消しないこと。replenishments は、来月末までの出荷に、在庫と全部の注残を足しても足りない数（quantity）と、いつまでに要るか（needBy）。addOrder の数量と納期にそのまま使える。',
+      '今の計画の状態を返す。今月の見通し（売上・材料費・労務費・設備の運転費・粗利・残業と休日出勤の時間・遅れる注番・来月末までの欠品）、品目（形状・売価・材料費・在庫・月間の出荷数）、段取り表、班（担当工程・設備・日ごとの人数と、同時に動いた設備の最大数）、設備（1時間の運転費・直前の型番）と負荷、型番ごとの工程、注番ごとの区分（A 今月必要／B 来月必要／C それ以降）・必要日・進み具合・完成見込み。担当者が採用済みの変更も含む。注番ごとの deliveries は、その注番が満たす取引先の受注（数量・希望納期・回答納期。未回答は answered が null）で、daysLate は完成見込みが回答納期より何日遅いか（正なら約束に間に合わない）で、注番が計画に入らないときは unplanned が true。品目の materialStock は、どの注残にも引き当てていない材料在庫で、作れる個数。注番の materialOn が null なら、その注番の材料は手元にある。欠品の maxShortage はその期間でいちばん多く足りない個数で、until が null なのは、来月末までに解消しないこと。replenishments は、来月末までの出荷に、在庫と全部の注残を足しても足りない数（quantity）と、いつまでに要るか（needBy）。addOrder の数量と納期にそのまま使える。',
     input_schema: { type: 'object', properties: {} },
   },
   {

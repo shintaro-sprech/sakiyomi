@@ -1,5 +1,6 @@
 import {
   Anchor,
+  Button,
   CloseButton,
   Group,
   Paper,
@@ -9,6 +10,7 @@ import {
   Table,
   Text,
   Title,
+  Tooltip,
   VisuallyHidden,
 } from '@mantine/core'
 import { useReducedMotion } from '@mantine/hooks'
@@ -18,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { ProposedOption } from '../assistant/tools'
 import { addDays, daysBetween, MINUTES_PER_DAY, parseClock, weekday } from '../engine/dates'
 import type { Plan } from '../engine/plan'
+import { lotHistory } from '../engine/records'
 import type { ScheduledOperation } from '../engine/scheduler'
 import type { Equipment, IsoDate } from '../engine/types'
 import { shortDate, shortDateTime } from './format'
@@ -26,6 +29,7 @@ type Props = {
   plan: Plan
   today: IsoDate
   highlight: ProposedOption | null
+  onShowInProgress: (orderId: string, lotId: string) => void
 }
 
 // A bar shows how one lot flows through its steps; an equipment shows everything it runs.
@@ -41,16 +45,23 @@ const ZOOMS = [
   { label: '大', dayWidth: 260 },
 ]
 const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土']
+const NOW_TAG_WIDTH = 64
 const TONE_NAMES = { late: '、納期に遅れる', tight: '、納期まで1日以内', ok: '' }
 const NO_FOCUS = 'none'
 
-export function GanttView({ plan, today, highlight }: Props) {
+export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
   const [zoom, setZoom] = useState(1)
   const [focusOrder, setFocusOrder] = useState('')
   const [selection, setSelection] = useState<Selection | null>(null)
   // Set when the planner opens a panel and cleared once focus has moved to it, so a
   // what-if that hides the panel and brings it back leaves focus alone.
   const [focusPending, setFocusPending] = useState(false)
+  // The time now, moved on as each minute turns.
+  const [clock, setClock] = useState(() => new Date())
+  useEffect(() => {
+    const timer = window.setTimeout(() => setClock(new Date()), 60_000 - (clock.getSeconds() * 1000 + clock.getMilliseconds()))
+    return () => window.clearTimeout(timer)
+  }, [clock])
   const focused = useCallback(() => setFocusPending(false), [])
   const { scenario, result } = plan
   const { settings, data } = scenario
@@ -141,6 +152,14 @@ export function GanttView({ plan, today, highlight }: Props) {
   const isDim = (operation: ScheduledOperation) =>
     selectedLot !== null ? operation.lotId !== selectedLot : highlighted.size > 0 && !highlighted.has(operation.orderId)
   const dates = Array.from({ length: days }, (_, index) => addDays(today, index))
+  // The plan starts at 00:00 today, so the time now sits on its first day. After midnight,
+  // until the app moves on to the new day, the chart still shows yesterday: no line then.
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const onFirstDay = `${clock.getFullYear()}-${pad(clock.getMonth() + 1)}-${pad(clock.getDate())}` === today
+  const now = clock.getHours() * 60 + clock.getMinutes()
+  const nowLabel = `${pad(clock.getHours())}:${pad(clock.getMinutes())}`
+  // The tag stays inside the first day's column, clear of the fixed equipment column.
+  const tagLeft = Math.min(Math.max(x(now) - NOW_TAG_WIDTH / 2, 0), dayWidth - NOW_TAG_WIDTH)
 
   const tone = (operation: ScheduledOperation) => {
     const forecast = forecasts.get(operation.orderId)
@@ -191,9 +210,15 @@ export function GanttView({ plan, today, highlight }: Props) {
 
       <Paper withBorder className="gantt-scroll">
         <div className="gantt-grid" style={{ width: 188 + days * dayWidth }}>
+          {onFirstDay && <div className="gantt-now" style={{ left: 188 + x(now) }} aria-hidden="true" />}
           <div className="gantt-row gantt-head">
             <div className="gantt-label">設備</div>
             <div className="gantt-track" style={{ width: days * dayWidth }}>
+              {onFirstDay && (
+                <span className="gantt-now-tag" style={{ left: tagLeft, width: NOW_TAG_WIDTH }}>
+                  今 {nowLabel}
+                </span>
+              )}
               {dates.map((date, index) => (
                 <div
                   key={date}
@@ -255,8 +280,26 @@ export function GanttView({ plan, today, highlight }: Props) {
                     const chosen = selectedOperation === operation
                     const detail = `${partLabel(operation.partNumber)}・${operation.quantity}個`
                     return (
-                      <button
+                      <Tooltip
                         key={barKey(operation)}
+                        label={
+                          <BarDetail
+                            operation={operation}
+                            lot={lotLabel(operation)}
+                            detail={detail}
+                            equipment={equipment.name}
+                            setup={setupLabel(operation)}
+                            due={dueByOrder.get(operation.orderId)}
+                            finish={forecasts.get(operation.orderId)?.finishAt ?? null}
+                          />
+                        }
+                        multiline
+                        interactive
+                        w={300}
+                        openDelay={250}
+                        events={{ hover: true, focus: true, touch: false }}
+                      >
+                      <button
                         data-op={barKey(operation)}
                         className={[
                           'gantt-bar',
@@ -270,7 +313,6 @@ export function GanttView({ plan, today, highlight }: Props) {
                         style={{ left, width }}
                         aria-pressed={chosen}
                         aria-label={`${lotLabel(operation)} ${detail} ${operation.stepName} ${shortDateTime(operation.startAt)}〜${shortDateTime(operation.endAt)}${TONE_NAMES[tone(operation)]}`}
-                        title={`${lotLabel(operation)}（注番${operation.orderId}）${operation.stepName} ${shortDateTime(operation.startAt)}〜${shortDateTime(operation.endAt)}`}
                         onClick={() => toggle(operationSelection(operation))}
                       >
                         {setupWidth > 0 && <span className="bar-setup-part" style={{ width: setupWidth }} />}
@@ -279,6 +321,7 @@ export function GanttView({ plan, today, highlight }: Props) {
                           <span>{detail}</span>
                         </span>
                       </button>
+                      </Tooltip>
                     )
                   })}
                 </div>
@@ -299,6 +342,7 @@ export function GanttView({ plan, today, highlight }: Props) {
 
       {selectedOperation && (
         <LotFlow
+          onShowInProgress={onShowInProgress}
           focusPending={focusPending}
           onFocused={focused}
           operation={selectedOperation}
@@ -327,6 +371,43 @@ export function GanttView({ plan, today, highlight }: Props) {
   )
 }
 
+// What one bar is, in the order a planner reads it: the lot, the step, the time, its setup, the order.
+function BarDetail({
+  operation,
+  lot,
+  detail,
+  equipment,
+  setup,
+  due,
+  finish,
+}: {
+  operation: ScheduledOperation
+  lot: string
+  detail: string
+  equipment: string
+  setup: string
+  due: IsoDate | undefined
+  finish: string | null
+}) {
+  return (
+    <Stack gap={2}>
+      <Text size="sm" fw={700}>
+        {lot}・{detail}
+      </Text>
+      <Text size="sm">
+        工程{operation.stepIndex + 1} {operation.stepName}　{equipment}
+      </Text>
+      <Text size="sm" className="tabular">
+        {shortDateTime(operation.startAt)} 〜 {shortDateTime(operation.endAt)}
+      </Text>
+      <Text size="sm">段取り {setup}</Text>
+      <Text size="sm" className="tabular">
+        注番 {operation.orderId}　納期 {shortDate(due)}　完成見込み {finish ? shortDateTime(finish) : '—'}
+      </Text>
+    </Stack>
+  )
+}
+
 type Labels = {
   focusPending: boolean
   onFocused: () => void
@@ -340,6 +421,7 @@ type Labels = {
 // Every step of the chosen bar's lot, in order, with the chosen step marked: the steps
 // it has done, the planned ones, and any the plan could not place.
 function LotFlow({
+  onShowInProgress,
   focusPending,
   onFocused,
   operation,
@@ -348,7 +430,7 @@ function LotFlow({
   partLabel,
   setupLabel,
   onClose,
-}: Labels & { operation: ScheduledOperation }) {
+}: Labels & { operation: ScheduledOperation; onShowInProgress: (orderId: string, lotId: string) => void }) {
   const { data } = plan.scenario
   const route = data.routes[operation.partNumber] ?? []
   const steps = plan.result.operations
@@ -363,11 +445,18 @@ function LotFlow({
   const finish = unplaced.length === 0 ? steps.at(-1)?.endAt : undefined
   const equipmentNames = new Map(data.equipment.map((equipment) => [equipment.id, equipment.name]))
   const stepName = (index: number, name: string) => `工程${index + 1} ${name}`
+  // The steps already done, as recorded on the shop floor.
+  const history = lotHistory(data, operation.lotId)
 
   return (
     <Panel
       focusPending={focusPending}
       onFocused={onFocused}
+      action={
+        <Button size="xs" variant="default" onClick={() => onShowInProgress(operation.orderId, operation.lotId)}>
+          進捗で見る
+        </Button>
+      }
       title={`${lotLabel(operation)}・${operation.partNumber}・${operation.quantity}個 の流れ`}
       summary={`注番 ${operation.orderId}　${partLabel(operation.partNumber)}　納期 ${shortDate(due)}　完成見込み ${finish ? shortDateTime(finish) : '—'}`}
       onClose={onClose}
@@ -385,16 +474,19 @@ function LotFlow({
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {route.slice(0, firstPlanned).map((step, index) => (
-              <Table.Tr key={`done-${index}`} className="is-before">
-                <Table.Th scope="row">{stepName(index, step.name)}</Table.Th>
-                <Table.Td>—</Table.Td>
-                <Table.Td>—</Table.Td>
-                <Table.Td>—</Table.Td>
-                <Table.Td>—</Table.Td>
-                <Table.Td>済み</Table.Td>
-              </Table.Tr>
-            ))}
+            {route.slice(0, firstPlanned).map((step, index) => {
+              const actual = history.find((record) => record.stepIndex === index)
+              return (
+                <Table.Tr key={`done-${index}`} className="is-before">
+                  <Table.Th scope="row">{stepName(index, step.name)}</Table.Th>
+                  <Table.Td>{actual ? (equipmentNames.get(actual.equipmentId) ?? actual.equipmentId) : '—'}</Table.Td>
+                  <Table.Td>—</Table.Td>
+                  <Table.Td>{actual ? shortDateTime(actual.start) : '—'}</Table.Td>
+                  <Table.Td>{actual ? shortDateTime(actual.end) : '—'}</Table.Td>
+                  <Table.Td>済み</Table.Td>
+                </Table.Tr>
+              )
+            })}
             {steps.map((step, index) => {
               const next = steps[index + 1]
               const chosen = step === operation
@@ -459,13 +551,20 @@ function EquipmentSchedule({
   const lotQuantities = new Map(operations.map((operation) => [operation.lotId, operation.quantity]))
   const pieces = [...lotQuantities.values()].reduce((total, quantity) => total + quantity, 0)
   const lots = lotQuantities.size
+  const setups = operations.filter((operation) => operation.setupMinutes > 0)
+  const setupMinutes = setups.reduce((total, operation) => total + operation.setupMinutes, 0)
+  // Work minutes already include the setup before them.
+  const hours = operations.reduce((total, operation) => total + operation.workMinutes, 0) / 60
+  const first = operations[0]?.startAt
+  const last = operations.at(-1)?.endAt
+  const span = first && last ? `${shortDate(first.slice(0, 10))}〜${shortDate(last.slice(0, 10))}` : ''
 
   return (
     <Panel
       focusPending={focusPending}
       onFocused={onFocused}
       title={`${equipment.name} の予定`}
-      summary={`${equipment.process}　${pieces}個 / ${lots}Lot`}
+      summary={`${equipment.process}　${pieces}個 / ${lots}Lot　稼働 ${Math.round(hours * 10) / 10}時間（うち段取り ${setups.length}回・${setupMinutes}分）　${span}`}
       onClose={onClose}
     >
       <Table.ScrollContainer minWidth={900}>
@@ -530,6 +629,7 @@ function EquipmentSchedule({
 function Panel({
   focusPending,
   onFocused,
+  action,
   title,
   summary,
   onClose,
@@ -537,6 +637,7 @@ function Panel({
 }: {
   focusPending: boolean
   onFocused: () => void
+  action?: ReactNode
   title: string
   summary: string
   onClose: () => void
@@ -566,7 +667,10 @@ function Panel({
             {summary}
           </Text>
         </Group>
-        <CloseButton onClick={onClose} aria-label="閉じる" />
+        <Group gap="xs" wrap="nowrap">
+          {action}
+          <CloseButton onClick={onClose} aria-label="閉じる" />
+        </Group>
       </Group>
       {children}
     </Paper>

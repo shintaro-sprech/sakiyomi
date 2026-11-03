@@ -16,6 +16,7 @@ describe('executeTool', () => {
     expect(situation.today).toBe(today)
     expect(situation.workdays).toBe('月火水木金')
     expect(situation.thisMonth.replenishments).toEqual([{ partNumber: 'B-200', quantity: 55, needBy: '2026-11-25' }])
+    expect(situation.orders.find((order) => order.id === '1045')?.deliveries[0]).toMatchObject({ answered: '2026-11-11', daysLate: 1 })
     expect(situation.orders.find((order) => order.id === '1045')).toMatchObject({
       unstarted: 30,
       forecastFinish: '2026-11-12T12:10',

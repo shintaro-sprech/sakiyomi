@@ -1,4 +1,17 @@
-import type { Attendance, Crew, Equipment, IsoDate, Lot, Order, Part, PlantData, Routes, SetupRule } from '../engine/types'
+import type {
+  Actual,
+  Attendance,
+  Crew,
+  CustomerOrder,
+  Equipment,
+  IsoDate,
+  Lot,
+  Order,
+  Part,
+  PlantData,
+  Routes,
+  SetupRule,
+} from '../engine/types'
 
 // Sheet and column names of the Excel workbook. People fill these in, so they are Japanese.
 export const SHEETS = {
@@ -10,6 +23,8 @@ export const SHEETS = {
   attendance: '出勤',
   orders: '注残',
   lots: 'Lot',
+  actuals: '実績',
+  customerOrders: '受注',
 } as const
 
 export const COLUMNS = {
@@ -20,6 +35,7 @@ export const COLUMNS = {
     materialCost: '材料費',
     stock: '在庫',
     monthlyUsage: '月間の出荷数',
+    materialStock: '材料在庫',
   },
   routes: { partNumber: '型番', order: '順番', step: '工程名', minutes: '1個あたりの分' },
   equipment: { id: '設備ID', name: '設備名', process: '担当工程', setup: '段取りの分', hourlyCost: '1時間の運転費', lastPart: '直前の型番' },
@@ -28,6 +44,23 @@ export const COLUMNS = {
   attendance: { crew: '班名', date: '日付', people: '人数' },
   orders: { id: '注番', partNumber: '型番', quantity: '数量', due: '納期', materialOn: '材料入荷日' },
   lots: { id: 'Lot番号', orderId: '注番', quantity: '数量', step: '今の工程番号', arrivedOn: 'その工程に着いた日' },
+  actuals: {
+    lotId: 'Lot番号',
+    step: '工程番号',
+    equipmentId: '設備ID',
+    start: '開始',
+    end: '終了',
+    good: '良品数',
+    defect: '不良数',
+  },
+  customerOrders: {
+    id: '受注番号',
+    orderId: '注番',
+    customer: '取引先',
+    quantity: '数量',
+    requested: '希望納期',
+    answered: '回答納期',
+  },
 } as const
 
 export const FINISHED = '完了'
@@ -42,7 +75,7 @@ export type Row = Record<string, unknown>
 export type SheetRows = Record<string, Row[]>
 
 export function toPlantRows(data: PlantData): SheetRows {
-  const { parts, routes, equipment, setupRules, crews, attendance, orders, lots } = COLUMNS
+  const { parts, routes, equipment, setupRules, crews, attendance, orders, lots, actuals, customerOrders } = COLUMNS
   return {
     [SHEETS.parts]: data.parts.map((part) => ({
       [parts.partNumber]: part.partNumber,
@@ -51,6 +84,7 @@ export function toPlantRows(data: PlantData): SheetRows {
       [parts.materialCost]: part.materialCost,
       [parts.stock]: part.stock,
       [parts.monthlyUsage]: part.monthlyUsage,
+      [parts.materialStock]: part.materialStock ?? '',
     })),
     [SHEETS.routes]: Object.entries(data.routes).flatMap(([partNumber, route]) =>
       route.map((step, index) => ({
@@ -98,6 +132,23 @@ export function toPlantRows(data: PlantData): SheetRows {
       [lots.step]: lot.stepIndex >= (data.routes[orderPart(data, lot)] ?? []).length ? FINISHED : lot.stepIndex + 1,
       [lots.arrivedOn]: lot.arrivedOn,
     })),
+    [SHEETS.actuals]: (data.actuals ?? []).map((actual) => ({
+      [actuals.lotId]: actual.lotId,
+      [actuals.step]: actual.stepIndex + 1,
+      [actuals.equipmentId]: actual.equipmentId,
+      [actuals.start]: actual.start.replace('T', ' '),
+      [actuals.end]: actual.end.replace('T', ' '),
+      [actuals.good]: actual.good,
+      [actuals.defect]: actual.defect,
+    })),
+    [SHEETS.customerOrders]: (data.customerOrders ?? []).map((entry) => ({
+      [customerOrders.id]: entry.id,
+      [customerOrders.orderId]: entry.orderId,
+      [customerOrders.customer]: entry.customer,
+      [customerOrders.quantity]: entry.quantity,
+      [customerOrders.requested]: entry.requested,
+      [customerOrders.answered]: entry.answered ?? '',
+    })),
   }
 }
 
@@ -131,7 +182,21 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
       return errors.push(`${where}：売価・材料費・在庫・月間の出荷数は0以上の数にしてください`)
     }
     const [price, materialCost, stock, monthlyUsage] = values as number[]
-    parts.push({ partNumber, shape: text(row[c.shape]), price, materialCost, stock, monthlyUsage })
+    // Left empty when the plant does not track material.
+    const materialCell = text(row[c.materialStock])
+    const materialStock = materialCell === '' ? null : number(row[c.materialStock])
+    if (materialCell !== '' && (materialStock === null || materialStock < 0 || !Number.isInteger(materialStock))) {
+      return errors.push(`${where}：材料在庫は0以上の整数にしてください`)
+    }
+    parts.push({
+      partNumber,
+      shape: text(row[c.shape]),
+      price,
+      materialCost,
+      stock,
+      monthlyUsage,
+      ...(materialStock !== null ? { materialStock } : {}),
+    })
   })
 
   const routeSteps = new Map<string, { order: number; name: string; minutesPerPiece: number }[]>()
@@ -272,6 +337,56 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
     lots.push({ id, orderId: order.id, quantity, stepIndex: stepNumber - 1, arrivedOn })
   })
 
+  // Records of the steps lots have been through, and the customer orders behind the open
+  // orders, came later and are shown only; a workbook without them plans the same.
+  const actuals: Actual[] = []
+  optionalRowsOf(SHEETS.actuals).forEach((row, index) => {
+    const c = COLUMNS.actuals
+    const where = at(SHEETS.actuals, index)
+    const lot = lots.find((candidate) => candidate.id === text(row[c.lotId]))
+    if (!lot) return errors.push(`${where}：Lot番号「${text(row[c.lotId])}」がLotのシートにありません`)
+    const route = routes[orders.find((order) => order.id === lot.orderId)?.partNumber ?? ''] ?? []
+    const stepNumber = number(row[c.step])
+    if (lot.stepIndex === 0) return errors.push(`${where}：Lot「${lot.id}」はまだ通り終えた工程がありません`)
+    if (stepNumber === null || !Number.isInteger(stepNumber) || stepNumber < 1 || stepNumber > lot.stepIndex) {
+      return errors.push(`${where}：工程番号は、そのLotが通り終えた1〜${lot.stepIndex}にしてください`)
+    }
+    if (actuals.some((actual) => actual.lotId === lot.id && actual.stepIndex === stepNumber - 1)) {
+      return errors.push(`${where}：Lot「${lot.id}」の工程${stepNumber}が重複しています`)
+    }
+    const machine = equipment.find((candidate) => candidate.id === text(row[c.equipmentId]))
+    if (!machine || machine.process !== route[stepNumber - 1]?.name) {
+      return errors.push(`${where}：設備ID「${text(row[c.equipmentId])}」は工程「${route[stepNumber - 1]?.name}」の設備ではありません`)
+    }
+    const start = dateTime(row[c.start])
+    const end = dateTime(row[c.end])
+    if (!start || !end || end < start) return errors.push(`${where}：開始と終了を日時（2026-11-02 09:00 の形）で入れてください`)
+    const good = number(row[c.good])
+    const defect = text(row[c.defect]) === '' ? 0 : number(row[c.defect])
+    if (good === null || defect === null || !Number.isInteger(good) || !Number.isInteger(defect) || good < 0 || defect < 0) {
+      return errors.push(`${where}：良品数と不良数は0以上の整数にしてください`)
+    }
+    actuals.push({ lotId: lot.id, stepIndex: stepNumber - 1, equipmentId: machine.id, start, end, good, defect })
+  })
+
+  const customerOrders: CustomerOrder[] = []
+  optionalRowsOf(SHEETS.customerOrders).forEach((row, index) => {
+    const c = COLUMNS.customerOrders
+    const where = at(SHEETS.customerOrders, index)
+    const id = text(row[c.id])
+    const order = orders.find((candidate) => candidate.id === text(row[c.orderId]))
+    const quantity = number(row[c.quantity])
+    const requested = date(row[c.requested])
+    const answered = text(row[c.answered]) === '' ? null : date(row[c.answered])
+    if (!id) return errors.push(`${where}：受注番号を入れてください`)
+    if (customerOrders.some((entry) => entry.id === id)) return errors.push(`${where}：受注番号「${id}」が重複しています`)
+    if (!order) return errors.push(`${where}：注番「${text(row[c.orderId])}」が注残にありません`)
+    if (quantity === null || !Number.isInteger(quantity) || quantity <= 0) return errors.push(`${where}：数量は正の整数にしてください`)
+    if (!requested) return errors.push(`${where}：希望納期を日付で入れてください`)
+    if (answered === null && text(row[c.answered]) !== '') return errors.push(`${where}：回答納期は日付か空欄にしてください`)
+    customerOrders.push({ id, orderId: order.id, customer: text(row[c.customer]), quantity, requested, answered })
+  })
+
   for (const order of orders) {
     const released = lots.filter((lot) => lot.orderId === order.id).reduce((total, lot) => total + lot.quantity, 0)
     if (released > order.quantity) {
@@ -287,7 +402,7 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
 
   return errors.length > 0
     ? { data: null, errors }
-    : { data: { parts, routes, equipment, setupRules, crews, attendance, orders, lots }, errors }
+    : { data: { parts, routes, equipment, setupRules, crews, attendance, orders, lots, actuals, customerOrders }, errors }
 }
 
 function text(value: unknown): string {
@@ -301,6 +416,23 @@ function number(value: unknown): number | null {
   return null
 }
 
+// Accepts Date cells with a time and text like 2026-11-12 09:30 or 2026/11/12T09:30,
+// written back as 2026-11-12T09:30.
+function dateTime(value: unknown): string | null {
+  const pad = (part: number) => String(part).padStart(2, '0')
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    // Excel keeps times as fractions of a day, which can land a hair before the minute.
+    const minute = new Date(Math.round(value.getTime() / 60_000) * 60_000)
+    return `${date(minute)}T${pad(minute.getHours())}:${pad(minute.getMinutes())}`
+  }
+  const match = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{2})(?::\d{2})?$/.exec(text(value))
+  if (!match) return null
+  const day = date(`${match[1]}-${match[2]}-${match[3]}`)
+  const [hours, minutes] = [Number(match[4]), Number(match[5])]
+  if (!day || hours > 23 || minutes > 59) return null
+  return `${day}T${pad(hours)}:${pad(minutes)}`
+}
+
 // Accepts Date cells and text like 2026-11-12 or 2026/11/12.
 function date(value: unknown): IsoDate | null {
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
@@ -309,5 +441,9 @@ function date(value: unknown): IsoDate | null {
   }
   const match = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(text(value))
   if (!match) return null
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])]
+  // A day that does not exist, such as 2026-02-30, is refused rather than rolled over.
+  const check = new Date(Date.UTC(year, month - 1, day))
+  if (check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) return null
   return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`
 }

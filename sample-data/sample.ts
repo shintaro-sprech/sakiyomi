@@ -2,10 +2,12 @@
 // equipment, prices and quantities do not come from any real plant. Dates are
 // relative to the day the app is opened, so the sample never goes stale.
 // Near due dates count weekdays, so the plan looks the same on any day of the week;
-// later ones are set in next month and the month after, so their demand class holds.
+// later ones are set on a working day in next month and the month after, so their demand
+// class holds.
 import { addDays, weekday } from '../src/engine/dates'
 import { lastDayOfMonth } from '../src/engine/demand'
-import type { IsoDate, PlantData } from '../src/engine/types'
+import { setupMinutes } from '../src/engine/setup'
+import type { Actual, CustomerOrder, IsoDate, Order, PlantData } from '../src/engine/types'
 
 export function createSampleData(today: IsoDate): PlantData {
   const day = (offset: number) => addDays(today, offset)
@@ -17,15 +19,16 @@ export function createSampleData(today: IsoDate): PlantData {
     }
     return date
   }
-  const nextMonth = (dayOfMonth: number) => addDays(lastDayOfMonth(today), dayOfMonth)
-  const monthAfterNext = (dayOfMonth: number) => addDays(lastDayOfMonth(addDays(lastDayOfMonth(today), 1)), dayOfMonth)
+  const nextMonth = (dayOfMonth: number) => workdayOnOrBefore(addDays(lastDayOfMonth(today), dayOfMonth))
+  const monthAfterNext = (dayOfMonth: number) =>
+    workdayOnOrBefore(addDays(lastDayOfMonth(addDays(lastDayOfMonth(today), 1)), dayOfMonth))
 
-  return {
+  const data: PlantData = {
     parts: [
-      { partNumber: 'A-100', shape: '板金', price: 6000, materialCost: 1200, stock: 120, monthlyUsage: 90 },
-      { partNumber: 'B-200', shape: '丸物', price: 18000, materialCost: 3500, stock: 0, monthlyUsage: 45 },
-      { partNumber: 'C-310', shape: '角物', price: 3500, materialCost: 700, stock: 400, monthlyUsage: 60 },
-      { partNumber: 'D-410', shape: '丸物', price: 9000, materialCost: 1500, stock: 300, monthlyUsage: 30 },
+      { partNumber: 'A-100', shape: '板金', price: 6000, materialCost: 1200, stock: 120, monthlyUsage: 90, materialStock: 200 },
+      { partNumber: 'B-200', shape: '丸物', price: 18000, materialCost: 3500, stock: 0, monthlyUsage: 45, materialStock: 20 },
+      { partNumber: 'C-310', shape: '角物', price: 3500, materialCost: 700, stock: 400, monthlyUsage: 60, materialStock: 60 },
+      { partNumber: 'D-410', shape: '丸物', price: 9000, materialCost: 1500, stock: 300, monthlyUsage: 30, materialStock: 0 },
     ],
     routes: {
       'A-100': [
@@ -97,4 +100,93 @@ export function createSampleData(today: IsoDate): PlantData {
       { id: 'L1034-2', orderId: '1034', quantity: 12, stepIndex: 2, arrivedOn: day(0) },
     ],
   }
+  return { ...data, actuals: sampleActuals(data), customerOrders: sampleCustomerOrders(data.orders) }
+}
+
+const CUSTOMERS = ['取引先A', '取引先B', '取引先C', '取引先D', '取引先E']
+
+function workdayBefore(date: IsoDate, count: number): IsoDate {
+  let result = date
+  for (let taken = 0; taken < count; ) {
+    result = addDays(result, -1)
+    if (weekday(result) !== 0 && weekday(result) !== 6) taken += 1
+  }
+  return result
+}
+
+// The date itself on a working day, else the working day before it.
+function workdayOnOrBefore(date: IsoDate): IsoDate {
+  return weekday(date) !== 0 && weekday(date) !== 6 ? date : workdayBefore(date, 1)
+}
+
+// The steps each lot has been through, made from the lots themselves so a saved sample
+// gets the same history: one step a working day, the last on the working day before the
+// lot reached where it is now. Each machine runs its lots in time order from 8:00, with a
+// setup from the setup table whenever the part number changes. A piece now and then failed
+// inspection on the way.
+export function sampleActuals(
+  data: Pick<PlantData, 'lots' | 'orders' | 'routes' | 'equipment' | 'parts' | 'setupRules'>,
+): Actual[] {
+  const clock = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+  const runs = data.lots.flatMap((lot, lotIndex) => {
+    const order = data.orders.find((candidate) => candidate.id === lot.orderId)
+    if (!order) return []
+    const route = data.routes[order.partNumber] ?? []
+    const steps = []
+    let good = lot.quantity
+    for (let stepIndex = Math.min(lot.stepIndex, route.length) - 1; stepIndex >= 0; stepIndex -= 1) {
+      const step = route[stepIndex]
+      const machines = data.equipment.filter((equipment) => equipment.process === step.name)
+      if (machines.length === 0) continue
+      const defect = (lotIndex + stepIndex) % 5 === 0 ? 1 : 0
+      steps.unshift({
+        lotId: lot.id,
+        lotIndex,
+        stepIndex,
+        partNumber: order.partNumber,
+        minutes: Math.ceil((good + defect) * step.minutesPerPiece),
+        machine: machines[lotIndex % machines.length],
+        date: workdayBefore(lot.arrivedOn, lot.stepIndex - stepIndex),
+        good,
+        defect,
+      })
+      good += defect
+    }
+    return steps
+  })
+  // The day each machine last ran, when it was free that day and the part it ran.
+  const machines = new Map<string, { date: IsoDate; free: number; partNumber: string }>()
+  const records = [...runs]
+    .sort((a, b) => a.date.localeCompare(b.date) || a.lotIndex - b.lotIndex)
+    .map((run) => {
+      const before = machines.get(run.machine.id)
+      const setup = setupMinutes(data, run.machine, before?.partNumber ?? null, run.partNumber)
+      const start = Math.min((before?.date === run.date ? before.free : 8 * 60) + setup, 17 * 60)
+      const end = Math.min(start + run.minutes, 17 * 60)
+      machines.set(run.machine.id, { date: run.date, free: end, partNumber: run.partNumber })
+      return { run, actual: { lotId: run.lotId, stepIndex: run.stepIndex, equipmentId: run.machine.id, start: `${run.date}T${clock(start)}`, end: `${run.date}T${clock(end)}`, good: run.good, defect: run.defect } }
+    })
+  return records
+    .sort((a, b) => a.run.lotIndex - b.run.lotIndex || a.run.stepIndex - b.run.stepIndex)
+    .map((record) => record.actual)
+}
+
+// The customer orders each open order fills, made from the orders, all dated on working
+// days. A larger order serves two customers, the first asking three working days before
+// the order's due date and promised two, so the order with no slack misses that promise on
+// any day of the week; the last order still waits for an answer on one of them.
+export function sampleCustomerOrders(orders: Order[]): CustomerOrder[] {
+  return orders.flatMap((order, index) => {
+    const customer = (offset: number) => CUSTOMERS[(index + offset) % CUSTOMERS.length]
+    const due = workdayOnOrBefore(order.due)
+    if (order.quantity < 30) {
+      return [{ id: `J${order.id}-1`, orderId: order.id, customer: customer(0), quantity: order.quantity, requested: due, answered: due }]
+    }
+    const first = Math.floor(order.quantity / 2)
+    const last = index === orders.length - 1
+    return [
+      { id: `J${order.id}-1`, orderId: order.id, customer: customer(0), quantity: first, requested: workdayBefore(order.due, 3), answered: workdayBefore(order.due, 2) },
+      { id: `J${order.id}-2`, orderId: order.id, customer: customer(1), quantity: order.quantity - first, requested: due, answered: last ? null : due },
+    ]
+  })
 }

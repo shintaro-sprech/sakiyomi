@@ -36,6 +36,9 @@ export type Part = {
   stock: number
   // Pieces shipped in an average month.
   monthlyUsage: number
+  // Raw material on hand that no open order has set aside, counted in the pieces it can
+  // make. An open order with no material arrival date has its material already.
+  materialStock?: number
 }
 
 // Setup minutes on a process when the shape changes from one to another.
@@ -95,6 +98,32 @@ export type PlantData = {
   attendance: Attendance[]
   orders: Order[]
   lots: Lot[]
+  // Shown only; the plan does not read them. Data from before they were kept has none.
+  actuals?: Actual[]
+  customerOrders?: CustomerOrder[]
+}
+
+// One step a lot has already been through, as recorded on the shop floor.
+export type Actual = {
+  lotId: string
+  stepIndex: number
+  equipmentId: string
+  // Local date and time, YYYY-MM-DDTHH:MM.
+  start: string
+  end: string
+  good: number
+  defect: number
+}
+
+// A customer's order that an open order fills: the date the customer asked for and the
+// date promised back, which is null until answered.
+export type CustomerOrder = {
+  id: string
+  orderId: string
+  customer: string
+  quantity: number
+  requested: IsoDate
+  answered: IsoDate | null
 }
 
 export type Settings = {

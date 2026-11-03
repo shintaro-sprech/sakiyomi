@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createSampleData } from '../../sample-data/sample'
 import { orderDemands } from './demand'
-import { stagnantDays, summarizeProgress, summarizeWip, type WipColumn } from './progress'
+import { monthReach, stagnantDays, summarizeProgress, summarizeWip, type WipColumn } from './progress'
 
 const today = '2026-11-03'
 const data = createSampleData(today)
@@ -132,5 +132,27 @@ describe('summarizeWip', () => {
     const order = summarizeWip(noCrews, orderDemands(noCrews, today)).map((column) => column.process ?? column.kind)
 
     expect(order).toEqual(['unreleased', '切断', '切削', '曲げ', '熱処理', '研削', '穴あけ', '溶接', '検査', '梱包', 'finished'])
+  })
+})
+
+describe('monthReach', () => {
+  it('counts what stock leaves for this month against the lots and the pieces not yet released', () => {
+    // B-200 ships 1.5 a day: 28 days to 11/30 need 42. One lot of 4 is packing, 30 are not yet released.
+    expect(monthReach(data, today)).toEqual([{ partNumber: 'B-200', need: 42, reach: { kind: 'short', pieces: 8 } }])
+  })
+
+  it('names the step whose lots, with those past it, first cover the month', () => {
+    const busy = { ...data, parts: data.parts.map((part) => (part.partNumber === 'A-100' ? { ...part, stock: 30 } : part)) }
+    const a100 = monthReach(busy, today).find((item) => item.partNumber === 'A-100')
+
+    // 28 days of 3 a day is 84; stock 30 leaves 54. Welding holds 30 and bending 40.
+    expect(a100).toEqual({ partNumber: 'A-100', need: 54, reach: { kind: 'lots', stepIndex: 1, stepName: '曲げ', pieces: 24 } })
+  })
+
+  it('reaches into the pieces not yet released once every lot is counted', () => {
+    const busy = { ...data, parts: data.parts.map((part) => (part.partNumber === 'B-200' ? { ...part, monthlyUsage: 30 } : part)) }
+
+    // 28 days of 1 a day is 28: the lot of 4 at packing, then 24 of the 30 not yet released.
+    expect(monthReach(busy, today)).toEqual([{ partNumber: 'B-200', need: 28, reach: { kind: 'unreleased', pieces: 24 } }])
   })
 })

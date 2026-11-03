@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { createSampleData } from '../../sample-data/sample'
+import { createSampleData, sampleActuals, sampleCustomerOrders } from '../../sample-data/sample'
 import { localToday } from '../engine/dates'
 import type { PlanState } from '../engine/plan'
 import type { Change } from '../engine/scenario'
@@ -53,12 +53,12 @@ function load(): SavedState {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as SavedState
-      if (parsed.version === 3) return withLastParts(parsed)
+      if (parsed.version === 3) return withSampleAdditions(parsed)
     }
     const previous = window.localStorage.getItem(PREVIOUS_KEY)
     if (previous) {
       const parsed = JSON.parse(previous) as Omit<SavedState, 'version'> & { version: number }
-      if (parsed.version === 2) return withLastParts(fromVersion2(parsed))
+      if (parsed.version === 2) return withSampleAdditions(fromVersion2(parsed))
     }
   } catch {
     // Fall through to a fresh sample.
@@ -66,13 +66,32 @@ function load(): SavedState {
   return createInitialState()
 }
 
-// The sample saved before equipment kept the part it ran last gets it from the sample.
-// A planner's choice of none is kept as an empty part, so it is not filled in again.
-function withLastParts(saved: SavedState): SavedState {
-  if (saved.dataSource !== 'sample' || saved.data.equipment.some((item) => 'lastPart' in item)) return saved
-  const sample = new Map(createSampleData(localToday()).equipment.map((item) => [item.id, item.lastPart]))
-  const equipment = saved.data.equipment.map((item) => ({ ...item, lastPart: sample.get(item.id) }))
-  return { ...saved, data: { ...saved.data, equipment } }
+// A sample saved before the sample had something gets it, each part on its own: the part
+// each machine ran last and material on hand. Something the planner cleared, such as a
+// machine's last part set to none, is kept as empty and not filled in again. The steps lots
+// have been through and the customer orders are not edited in the app, so they are made
+// afresh from the saved lots and orders: their dates fit a sample saved on another day. An
+// order with no customer orders saved keeps none.
+function withSampleAdditions(saved: SavedState): SavedState {
+  if (saved.dataSource !== 'sample') return saved
+  const sample = createSampleData(localToday())
+  let data = saved.data
+  if (!data.equipment.some((item) => 'lastPart' in item)) {
+    const lastParts = new Map(sample.equipment.map((item) => [item.id, item.lastPart]))
+    data = { ...data, equipment: data.equipment.map((item) => ({ ...item, lastPart: lastParts.get(item.id) })) }
+  }
+  if (!data.parts.some((part) => 'materialStock' in part)) {
+    const material = new Map(sample.parts.map((part) => [part.partNumber, part.materialStock]))
+    data = { ...data, parts: data.parts.map((part) => ({ ...part, materialStock: material.get(part.partNumber) })) }
+  }
+  const customerOrders = sampleCustomerOrders(data.orders)
+  const served = data.customerOrders && new Set(data.customerOrders.map((entry) => entry.orderId))
+  data = {
+    ...data,
+    actuals: sampleActuals(data),
+    customerOrders: served ? customerOrders.filter((entry) => served.has(entry.orderId)) : customerOrders,
+  }
+  return { ...saved, data }
 }
 
 function fromVersion2(saved: Omit<SavedState, 'version'>): SavedState {
