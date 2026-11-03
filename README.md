@@ -1,37 +1,62 @@
-# サキヨミ
+# Sakiyomi (サキヨミ)
 
-話しかけると、出荷日への影響と組み替え案が見える生産計画アシスタントです。ハッカソン「Built with Claude: Japan 2026」（2026-11-02〜11-10）で作ります。
+**A production-planning assistant for small factories that plan in Excel. Tell it what just happened — "the material for order 1045 is two days late" — and it shows which shipments slip and lays out ways to recover.**
 
-## 手元で動かす
+日本語版: [README.ja.md](README.ja.md)
 
-Node.js 22 以上で動きます。
+Built during the hackathon "Built with Claude: Japan 2026" (2026-11-02 to 11-10).
+
+## Why
+
+In a small job shop, the plan lives in a spreadsheet and the know-how lives in one veteran's head. When material is late, an order grows, or a machine goes down, only that person can tell which shipments will slip and what to rearrange. Sakiyomi lets anyone ask, see the effect on every order, and keep a record of why a decision was made.
+
+## What it does
+
+- **Progress** — every open order, or every part number, with one chip per process step. Each chip shows how far the step is done, how many pieces and lots sit there, and a warning for lots that have not moved for days. Click the overall column or any chip for the list of work-in-progress lots and when each one is planned to run next.
+- **Gantt** — equipment × time. A deterministic scheduler places every lot and the not-yet-released quantity on the machines, with working hours, weekends, setup time when the part number changes, transfer time between steps and material arrival dates. Bars turn amber or red when an order is close to or past its due date.
+- **Ask Claude** — describe an event in plain Japanese. Claude reads the plan, simulates the event, finds where the work is stuck and tries countermeasures (overtime, holiday work, expediting). It then puts two or three options on the screen. The effect shown on each card is recomputed by the scheduler, not taken from Claude's text.
+- **Decision log** — adopting an option asks for an optional note on why. The change, Claude's reasoning, the trade-off and the planner's note are kept together, so the next person can see how the call was made. Any decision can be undone.
+- **Settings and data** — working hours and days, the due-date vs setup balance, transfer time, setup time per machine, stopping a machine. Data can be exported to and imported from an Excel workbook with four sheets (routes, equipment, open orders, lots).
+
+## How Claude is used
+
+The core of the app is a tool-use loop with Claude Opus 5.5 (`claude-opus-5-5`, adaptive thinking) through the Messages API:
+
+| Tool | What it does |
+| --- | --- |
+| `get_situation` | Today's plan: orders, progress, forecast finish dates, equipment load |
+| `get_order_plan` | When and on which machine each lot of one order is planned |
+| `simulate_changes` | Applies what-if changes and returns how every order's finish date moves |
+| `present_options` | Shows option cards; the reported event and the countermeasures are kept apart |
+
+The tools run in the browser against the same scheduler that draws the screens, so Claude's numbers always match what the planner sees. The Cloudflare Worker only relays: it fixes the model, system prompt, tool definitions and output length, accepts only user and assistant turns, limits requests per visitor and enables server-side refusal fallbacks. The API key never reaches the browser.
+
+## Try it locally
+
+Requires Node.js 22 or later.
 
 ```bash
 npm install
+cp .dev.vars.example .dev.vars   # then put your Anthropic API key in .dev.vars
 npm run dev
 ```
 
-ブラウザで http://localhost:5173 を開きます。計算部分のテストは `npm test` で実行します。構成は [docs/構成.md](docs/構成.md) にまとめています。サンプルのデータは、このリポジトリのために作った架空のものです。
+Open http://localhost:5173. Progress, Gantt, settings and Excel work without a key; only "Ask Claude" needs one. The app starts with fictional sample data. Try the first suggested message, "注番1045の材料が2日遅れると連絡がありました" (the material for order 1045 is two days late).
 
-## 守ること
+Tests for the scheduler, the tools and the Excel round trip: `npm test`.
 
-- コードと文書は、すべて 2026-11-02 12:00 以降に新しく書く
-- 外から持ち込んだデータは、ここに出典を書く。個人情報は入れない
-- 使う権利のない素材（画像、データ、フォント）は入れない
-- 公開リポジトリとして提出するので、鍵（API キー、`.env`）はコミットしない
-- 開発の中心は Claude Code。ほかの AI ツールは補助に使ってよいが、評価されるのは Claude による開発だけ
-- チームは2名まで。参加者でない人には、Issue や Pull Request で手伝ってもらえない
+## Data
 
-## 提出（締切 2026-11-08 20:00 JST。それまでは差し替えできる）
+The sample data in [sample-data/sample.ts](sample-data/sample.ts) was made up for this project. Part numbers, machines and quantities do not come from any real plant, and there is no personal data. Dates are relative to the day the app is opened. Data you load stays in your browser.
 
-| 項目 | 状態 |
-| --- | --- |
-| チーム名 | 未定 |
-| プロジェクト名 | サキヨミ |
-| テーマ（#1 あなたにしかない深さを／#2 本来、誰にでも届くべきものを） | 未定 |
-| 概要（冒頭の1文と利用の場面、500字以内） | 未作成 |
-| 公開 GitHub リポジトリ | https://github.com/shintaro-sprech/sakiyomi |
-| デモ動画（3分以内、日本語、動いている画面が中心） | 未作成 |
-| 使った Claude の製品・機能 | 未記入 |
-| 一番詰まった場面 | 未記入 |
-| Claude を使った感想と改善してほしい点 | 未記入 |
+## Layout
+
+```
+src/engine/     scheduler, progress and what-if changes (plain TypeScript, no React)
+src/assistant/  Claude tool definitions, tool runners and the conversation loop
+src/ui/         screens (React)
+src/data/       Excel import and export
+worker/         Cloudflare Worker relaying to the Claude API
+sample-data/    fictional sample data
+docs/           architecture notes (Japanese)
+```

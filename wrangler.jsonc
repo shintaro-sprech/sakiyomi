@@ -13,7 +13,11 @@
 	"observability": {
 		"enabled": true
 	},
-	"upload_source_maps": true
+	"upload_source_maps": true,
+	// Limits /api/chat per visitor so the public demo cannot be used as a free Claude relay.
+	"ratelimits": [
+		{ "name": "CHAT_RATE_LIMITER", "namespace_id": "2611031", "simple": { "limit": 20, "period": 60 } }
+	]
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
