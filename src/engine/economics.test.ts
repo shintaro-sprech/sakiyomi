@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { monthlyOutlook } from './economics'
+import { monthlyOutlook, unusedChanges } from './economics'
 import { runPlan } from './plan'
 import type { Change } from './scenario'
 import { createDefaultSettings } from './settings'
@@ -74,5 +74,27 @@ describe('monthlyOutlook', () => {
       { partNumber: 'P', from: '2026-11-03', until: '2026-11-04', maxShortage: 1 },
       { partNumber: 'P', from: '2026-11-13', until: null, maxShortage: 49 },
     ])
+  })
+})
+
+describe('unusedChanges', () => {
+  const today = '2026-11-06'
+  const settings = { ...createDefaultSettings(), transferMinutes: 0 }
+  const unused = (quantity: number, changes: Change[]) =>
+    unusedChanges(runPlan({ data: plant(quantity), settings, adopted: changes, today }), changes, today)
+
+  it('finds holiday work on a day when nothing is left to run', () => {
+    // 2026-11-06 is a Friday: one piece is done that day, so Saturday has nothing to run.
+    const saturday: Change = { kind: 'holidayWork', equipmentId: 'M1', date: '2026-11-07' }
+
+    expect(unused(1, [saturday])).toEqual([saturday])
+    expect(unused(10, [saturday])).toEqual([])
+  })
+
+  it('keeps overtime that work runs into', () => {
+    const friday: Change = { kind: 'overtime', equipmentId: 'M1', from: '2026-11-06', to: '2026-11-06', minutesPerDay: 60 }
+
+    expect(unused(10, [friday])).toEqual([])
+    expect(unused(1, [friday])).toEqual([friday])
   })
 })

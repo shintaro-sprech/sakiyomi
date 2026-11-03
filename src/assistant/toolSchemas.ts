@@ -65,7 +65,7 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: TOOL_NAMES.getOrderPlan,
     description:
-      '1つの注番について、Lot ごと・工程ごとに、どの設備でいつからいつまで加工する計画かを返す。waitedForPeople は、設備は空いていたが班の人が空かずに待ったこと。どこで時間がかかっているかを調べるときに使う。changes を渡すと、その変更を当てて組み直した計画で返す（計画そのものは変えない）。',
+      '1つの注番について、Lot ごと・工程ごとに、どの設備でいつからいつまで加工する計画かを返す。waitedForPeople は、設備は空いていたが班の人が空かずに待ったこと（作業は途中で止めないので、人のいない日をまたぐ作業も、その日が過ぎるまで待つ）。どこで時間がかかっているかを調べるときに使う。changes を渡すと、その変更を当てて組み直した計画で返す（計画そのものは変えない）。',
     input_schema: {
       type: 'object',
       properties: {
@@ -78,7 +78,7 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: TOOL_NAMES.simulateChanges,
     description:
-      '変更を今の計画に当てて全注番を組み直し、完成見込みの変化と、今月の粗利・残業・休日出勤の増減、変更後の今月の見通しを返す。shifted には、完成日か遅れが変わった注番が入り、before と after は変更前と変更後の完成見込みの日時。shifted にない注番は完成日が変わらない（その日の中の時刻は get_order_plan で確かめる）。遅れは日付で決まり、納期の日のうちに完成すれば遅れではない。計画そのものは変えない。何度でも試せる。',
+      '変更を今の計画に当てて全注番を組み直し、完成見込みの変化と、今月の粗利・残業・休日出勤の増減、変更後の今月の見通しを返す。shifted には、完成日か遅れが変わった注番が入り、before と after は変更前と変更後の完成見込みの日時。shifted にない注番は完成日が変わらない（その日の中の時刻は get_order_plan で確かめる）。遅れは日付で決まり、納期の日のうちに完成すれば遅れではない。unusedChanges は、残業や休日出勤のうち、その時間に加工する作業がなく使われなかった変更。計画そのものは変えない。何度でも試せる。',
     input_schema: {
       type: 'object',
       properties: { changes: { type: 'array', items: changeSchema } },
@@ -88,7 +88,7 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: TOOL_NAMES.presentOptions,
     description:
-      '担当者に選んでもらう対策の案を画面にカードで出す。担当者から聞いた出来事（材料の遅れ、設備の故障など）と、担当者がやろうとしていること（応援に人を出すなど）は event に、あなたの対策は案ごとの changes に分けて書く。案ごとに、その手が効く理由と、その代わりに起きること（残業時間や後ろにずれる注番など）を書く。各案の効果は画面側で、event のあとに案の changes を当てて計算し直して表示し、その結果を返す。ifNothingIsDone は event だけを当てた結果。',
+      '担当者に選んでもらう対策の案を画面にカードで出す。担当者から聞いた出来事（材料の遅れ、設備の故障など）と、担当者がやろうとしていること（応援に人を出すなど）は event に、あなたの対策は案ごとの changes に分けて書く。案ごとに、その手が効く理由と、その代わりに起きること（残業時間や後ろにずれる注番など）を書く。各案の効果は画面側で、event のあとに案の changes を当てて計算し直して表示し、その結果を返す。ifNothingIsDone は event だけを当てた結果。案の changes に、使われない残業や休日出勤があると、エラーで返す。',
     input_schema: {
       type: 'object',
       properties: {

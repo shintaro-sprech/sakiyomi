@@ -2,6 +2,7 @@ import { equipmentCalendar, splitWorkingMinutes } from './calendar'
 import { addDays, daysBetween, MINUTES_PER_DAY } from './dates'
 import { dailyUsage, lastDayOfMonth, lastDayOfNextMonth, orderDemands, type PriorityClass } from './demand'
 import type { Plan } from './plan'
+import type { Change } from './scenario'
 import type { IsoDate } from './types'
 
 export type Shortage = {
@@ -111,6 +112,25 @@ export function monthlyOutlook(plan: Plan, today: IsoDate): MonthlyOutlook {
     shortages: projectShortages(plan, today, completions),
     classCounts,
   }
+}
+
+// Overtime and holiday work in which the plan runs nothing: no work falls in the
+// extra time on those days. Overtime on a day off counts as holiday work, so it shows
+// as unused here even when the longer day is worked.
+export function unusedChanges(plan: Plan, changes: Change[], today: IsoDate): Change[] {
+  const { scenario, result } = plan
+  return changes.filter((change) => {
+    if (change.kind !== 'overtime' && change.kind !== 'holidayWork') return false
+    const [from, to] = change.kind === 'overtime' ? [change.from, change.to] : [change.date, change.date]
+    const start = daysBetween(today, from) * MINUTES_PER_DAY
+    const end = (daysBetween(today, to) + 1) * MINUTES_PER_DAY
+    const calendar = equipmentCalendar(scenario, change.equipmentId, today)
+    return !result.operations.some((operation) => {
+      if (operation.equipmentId !== change.equipmentId) return false
+      const split = splitWorkingMinutes(calendar, Math.max(operation.start, start), Math.min(operation.end, end))
+      return (change.kind === 'overtime' ? split.overtime : split.holiday) > 0
+    })
+  })
 }
 
 // Stock day by day to the end of next month: usage takes it down, finished lots bring it up.

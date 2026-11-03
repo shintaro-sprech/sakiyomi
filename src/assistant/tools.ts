@@ -1,6 +1,6 @@
 import { compareSchedules, type ScheduleComparison } from '../engine/compare'
 import { orderDemands } from '../engine/demand'
-import { monthlyOutlook, type MonthlyOutlook } from '../engine/economics'
+import { monthlyOutlook, unusedChanges, type MonthlyOutlook } from '../engine/economics'
 import { runPlan, type PlanState } from '../engine/plan'
 import { summarizeProgress } from '../engine/progress'
 import { ChangeError, describeChange, parseChange, sameChange, type Change } from '../engine/scenario'
@@ -15,6 +15,8 @@ export type Effect = {
   grossProfitDelta: number
   overtimeHoursDelta: number
   holidayHoursDelta: number
+  // Overtime and holiday work among the changes that nothing runs in.
+  unusedChanges: Change[]
 }
 
 // What the planner reported (a delay, a breakdown) and its effect if nothing is done.
@@ -106,6 +108,7 @@ export function effectOf(state: PlanState, changes: Change[]): Effect {
     grossProfitDelta: outlook.grossProfit - outlookBefore.grossProfit,
     overtimeHoursDelta: round1(outlook.overtimeHours - outlookBefore.overtimeHours),
     holidayHoursDelta: round1(outlook.holidayHours - outlookBefore.holidayHours),
+    unusedChanges: unusedChanges(after, changes, state.today),
   }
 }
 
@@ -252,6 +255,7 @@ function simulate(state: PlanState, changes: Change[]) {
     grossProfitDelta: effect.grossProfitDelta,
     overtimeHoursDelta: effect.overtimeHoursDelta,
     holidayHoursDelta: effect.holidayHoursDelta,
+    unusedChanges: effect.unusedChanges.map((change) => describeChange(change, data)),
     thisMonthAfter: summarizeOutlook(effect.outlook),
   }
 }
@@ -278,6 +282,17 @@ function presentOptions(state: PlanState, eventInput: unknown, optionsInput: unk
       effect: effectOf(state, [...eventChanges, ...changes]),
     }
   })
+
+  // A card must not ask anyone to work extra time that nothing runs in. Claude rewrites
+  // the option, reason included, rather than the change being dropped behind its back.
+  const unused = options.flatMap((option) =>
+    option.effect.unusedChanges
+      .filter((change) => option.changes.includes(change))
+      .map((change) => `案「${option.title}」の「${describeChange(change, state.data)}」`),
+  )
+  if (unused.length > 0) {
+    throw new ChangeError(`${unused.join('、')}は、その時間に加工する作業がなく使われません。外してから出し直してください`)
+  }
 
   const brief = (effect: Effect) => ({
     lateAfter: effect.comparison.lateAfter,

@@ -119,6 +119,30 @@ describe('executeTool', () => {
     expect(result.options[0].newlyLate).toEqual([])
   })
 
+  it('tells which overtime and holiday work nothing runs in', () => {
+    const lend = [
+      { kind: 'headcount', crew: '機械班', from: '2026-11-04', to: '2026-11-04', people: 1 },
+      { kind: 'headcount', crew: '機械班', from: '2026-11-05', to: '2026-11-05', people: 0 },
+      { kind: 'headcount', crew: '機械班', from: '2026-11-06', to: '2026-11-06', people: 1 },
+      { kind: 'headcount', crew: '板金班', from: '2026-11-04', to: '2026-11-06', people: 4 },
+    ]
+    const weekend = [
+      { kind: 'holidayWork', equipmentId: 'MC-1', date: '2026-11-07' },
+      { kind: 'holidayWork', equipmentId: 'HT-1', date: '2026-11-08' },
+    ]
+    const simulated = JSON.parse(executeTool(TOOL_NAMES.simulateChanges, { changes: [...lend, ...weekend] }, state).content)
+    const presented = executeTool(
+      TOOL_NAMES.presentOptions,
+      { event: lend, options: [{ title: '週末に取り戻す', changes: weekend, reason: 'r', tradeoff: 't' }] },
+      state,
+    )
+
+    expect(simulated.unusedChanges).toEqual(['熱処理炉1を11/8に休日出勤で動かす'])
+    expect(presented.isError).toBe(true)
+    expect(presented.content).toContain('案「週末に取り戻す」の「熱処理炉1を11/8に休日出勤で動かす」')
+    expect(presented.options).toBeUndefined()
+  })
+
   it('tells Claude how many people each crew has', () => {
     const crew = describeSituation(state).crews.find((item) => item.name === '機械班')
 
