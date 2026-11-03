@@ -8,6 +8,9 @@ export type OrderShift = {
   due: IsoDate
   before: IsoDate | null
   after: IsoDate | null
+  // The forecast finish with its time, as in OrderForecast.finishAt.
+  beforeAt: string | null
+  afterAt: string | null
   // after minus before in days; null when either side has no date.
   shiftDays: number | null
   lateBefore: boolean
@@ -53,6 +56,8 @@ function toShift(old: OrderForecast | undefined, order: OrderForecast): OrderShi
     due: order.due,
     before,
     after,
+    beforeAt: old?.finishAt ?? null,
+    afterAt: order.finishAt,
     shiftDays: before && after ? daysBetween(before, after) : null,
     lateBefore: old?.late ?? false,
     lateAfter: order.late,

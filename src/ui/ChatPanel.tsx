@@ -341,7 +341,12 @@ function describeToolUse(use: ToolUse, data: PlantData): { icon: ReactNode; labe
     case TOOL_NAMES.getSituation:
       return { icon: <IconListSearch size={13} />, label: '計画を確認' }
     case TOOL_NAMES.getOrderPlan:
-      return { icon: <IconRoute size={13} />, label: `注番${String(input.orderId)}の予定` }
+      return {
+        icon: <IconRoute size={13} />,
+        label: Array.isArray(input.changes) && input.changes.length > 0
+          ? `注番${String(input.orderId)}の予定：${labelChanges(input.changes, data)}`
+          : `注番${String(input.orderId)}の予定`,
+      }
     case TOOL_NAMES.simulateChanges:
       return { icon: <IconCalculator size={13} />, label: `試算：${labelChanges(input.changes, data)}` }
     case TOOL_NAMES.presentOptions:

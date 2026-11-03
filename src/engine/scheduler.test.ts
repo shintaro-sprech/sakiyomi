@@ -395,7 +395,13 @@ describe('compareSchedules', () => {
 
     expect(before.orders[0].late).toBe(false)
     expect(comparison.newlyLate).toEqual(['1'])
-    expect(comparison.shifted[0]).toMatchObject({ before: TUESDAY, after: '2026-11-04', shiftDays: 1 })
+    expect(comparison.shifted[0]).toMatchObject({
+      before: TUESDAY,
+      after: '2026-11-04',
+      beforeAt: before.orders[0].finishAt,
+      afterAt: expect.stringMatching(/^2026-11-04T\d\d:\d\d$/),
+      shiftDays: 1,
+    })
     expect(comparison.lateAfter).toBe(1)
   })
 })

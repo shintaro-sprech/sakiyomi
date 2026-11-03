@@ -33,6 +33,22 @@ describe('executeTool', () => {
     expect(outcome.isError).toBe(false)
     expect(result.changes).toEqual(['注番1045の材料が2日遅れる'])
     expect(result.newlyLate).toEqual(['1045'])
+    expect(result.shifted.find((shift: { orderId: string }) => shift.orderId === '1045')).toMatchObject({
+      before: '2026-11-12T12:10',
+      after: '2026-11-16T13:45',
+    })
+    expect(state.adopted).toEqual([])
+  })
+
+  it('shows the plan of one order with changes applied', () => {
+    const delay = { kind: 'materialDelay', orderId: '1045', days: 2 }
+    const current = JSON.parse(executeTool(TOOL_NAMES.getOrderPlan, { orderId: '1045' }, state).content)
+    const delayed = JSON.parse(executeTool(TOOL_NAMES.getOrderPlan, { orderId: '1045', changes: [delay] }, state).content)
+
+    expect(current.forecastFinish).toBe('2026-11-12T12:10')
+    expect(delayed.changes).toEqual(['注番1045の材料が2日遅れる'])
+    expect(delayed.forecastFinish).toBe('2026-11-16T13:45')
+    expect(delayed.operations[0].start).toBe('2026-11-06T08:00')
     expect(state.adopted).toEqual([])
   })
 

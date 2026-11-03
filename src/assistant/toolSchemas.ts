@@ -65,17 +65,20 @@ export const TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: TOOL_NAMES.getOrderPlan,
     description:
-      '1つの注番について、Lot ごと・工程ごとに、どの設備でいつからいつまで加工する計画かを返す。waitedForPeople は、設備は空いていたが班の人が空かずに待ったこと。どこで時間がかかっているかを調べるときに使う。',
+      '1つの注番について、Lot ごと・工程ごとに、どの設備でいつからいつまで加工する計画かを返す。waitedForPeople は、設備は空いていたが班の人が空かずに待ったこと。どこで時間がかかっているかを調べるときに使う。changes を渡すと、その変更を当てて組み直した計画で返す（計画そのものは変えない）。',
     input_schema: {
       type: 'object',
-      properties: { orderId: { type: 'string' } },
+      properties: {
+        orderId: { type: 'string' },
+        changes: { type: 'array', items: changeSchema, description: '当てて見たい変更。今の計画を見るなら省く' },
+      },
       required: ['orderId'],
     },
   },
   {
     name: TOOL_NAMES.simulateChanges,
     description:
-      '変更を今の計画に当てて全注番を組み直し、完成見込みの変化と、今月の粗利・残業・休日出勤の増減、変更後の今月の見通しを返す。計画そのものは変えない。何度でも試せる。',
+      '変更を今の計画に当てて全注番を組み直し、完成見込みの変化と、今月の粗利・残業・休日出勤の増減、変更後の今月の見通しを返す。shifted には、完成日か遅れが変わった注番が入り、before と after は変更前と変更後の完成見込みの日時。shifted にない注番は完成日が変わらない（その日の中の時刻は get_order_plan で確かめる）。遅れは日付で決まり、納期の日のうちに完成すれば遅れではない。計画そのものは変えない。何度でも試せる。',
     input_schema: {
       type: 'object',
       properties: { changes: { type: 'array', items: changeSchema } },

@@ -26,8 +26,8 @@ The core of the app is a tool-use loop with Claude Opus 5.5 (`claude-opus-5-5`, 
 | Tool | What it does |
 | --- | --- |
 | `get_situation` | Today's plan: this month's outlook, parts, setup rules, crews and headcount, equipment load, and each order's class, need date and forecast finish |
-| `get_order_plan` | When and on which machine each lot of one order is planned, including work that waited for a person |
-| `simulate_changes` | Applies what-if changes and returns how every order's finish date, this month's gross profit and overtime and holiday hours move |
+| `get_order_plan` | When and on which machine each lot of one order is planned, including work that waited for a person, in the current plan or with what-if changes applied |
+| `simulate_changes` | Applies what-if changes and returns how every order's finish date and time, this month's gross profit and overtime and holiday hours move |
 | `present_options` | Shows option cards; the reported event and the countermeasures are kept apart |
 
 The tools run in the browser against the same scheduler that draws the screens, so Claude's numbers always match what the planner sees. The Cloudflare Worker only relays: it fixes the model, system prompt, tool definitions and output length, accepts only user and assistant turns, limits requests per visitor and enables server-side refusal fallbacks. The API key never reaches the browser.

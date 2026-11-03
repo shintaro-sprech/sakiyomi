@@ -61,7 +61,7 @@ export function executeTool(name: string, input: unknown, state: PlanState): Too
       case TOOL_NAMES.getSituation:
         return ok(describeSituation(state))
       case TOOL_NAMES.getOrderPlan:
-        return ok(describeOrderPlan(state, field(input, 'orderId')))
+        return ok(describeOrderPlan(state, field(input, 'orderId'), optionalField(input, 'changes') ?? []))
       case TOOL_NAMES.simulateChanges:
         return ok(simulate(state, parseChanges(field(input, 'changes'))))
       case TOOL_NAMES.presentOptions:
@@ -201,14 +201,16 @@ function summarizeOutlook(outlook: MonthlyOutlook) {
   }
 }
 
-function describeOrderPlan(state: PlanState, orderIdInput: unknown) {
+function describeOrderPlan(state: PlanState, orderIdInput: unknown, changesInput: unknown) {
   if (typeof orderIdInput !== 'string') throw new ChangeError('orderId を文字で指定してください')
-  const { scenario, result } = runPlan(state)
+  const changes = parseChanges(changesInput)
+  const { scenario, result } = runPlan(state, changes)
   const order = scenario.data.orders.find((candidate) => candidate.id === orderIdInput)
   if (!order) throw new ChangeError(`注番${orderIdInput}は見つかりません`)
   const forecast = result.orders.find((candidate) => candidate.orderId === order.id)
 
   return {
+    changes: changes.map((change) => describeChange(change, scenario.data)),
     orderId: order.id,
     partNumber: order.partNumber,
     quantity: order.quantity,
@@ -241,7 +243,12 @@ function simulate(state: PlanState, changes: Change[]) {
     lateAfter: effect.comparison.lateAfter,
     newlyLate: effect.comparison.newlyLate,
     noLongerLate: effect.comparison.noLongerLate,
-    shifted: effect.comparison.shifted,
+    // Finish dates with their time, so Claude can tell how close a due date is.
+    shifted: effect.comparison.shifted.map(({ before, after, beforeAt, afterAt, ...shift }) => ({
+      ...shift,
+      before: beforeAt ?? before,
+      after: afterAt ?? after,
+    })),
     grossProfitDelta: effect.grossProfitDelta,
     overtimeHoursDelta: effect.overtimeHoursDelta,
     holidayHoursDelta: effect.holidayHoursDelta,
