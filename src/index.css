@@ -24,6 +24,8 @@
   --sk-fill-low: var(--mantine-color-red-1);
   --sk-fill-mid: var(--mantine-color-yellow-2);
   --sk-fill-high: var(--mantine-color-teal-1);
+  --sk-class-a-fill: var(--mantine-color-red-1);
+  --sk-class-b-fill: var(--mantine-color-orange-1);
   --sk-bar-text: var(--mantine-color-white);
   --sk-event: var(--mantine-color-yellow-0);
   --sk-user-bubble: var(--mantine-color-teal-filled);
@@ -49,6 +51,8 @@
   --sk-fill-low: rgb(250 82 82 / 28%);
   --sk-fill-mid: rgb(250 176 5 / 26%);
   --sk-fill-high: rgb(18 184 134 / 26%);
+  --sk-class-a-fill: rgb(250 82 82 / 24%);
+  --sk-class-b-fill: rgb(253 126 20 / 22%);
   --sk-event: rgb(250 176 5 / 12%);
   --sk-assistant-bubble: var(--mantine-color-dark-5);
   --sk-mascot-face: var(--mantine-color-gray-0);
@@ -178,6 +182,186 @@
 
 .progress-table .col-overall {
   border-right: 1px solid var(--sk-border);
+}
+
+/* Work by process and urgency */
+
+/* Keyboard focus scrolls cells clear of the sticky first column. */
+.wip-wrap {
+  scroll-padding-left: 112px;
+}
+
+.wip-board {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: calc(112px + var(--wip-columns) * 64px);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wip-board th,
+.wip-board td {
+  padding: 4px 3px;
+  text-align: center;
+  font-weight: 400;
+  border-bottom: 1px solid var(--sk-border);
+}
+
+.wip-board thead th {
+  color: var(--sk-text-dimmed);
+}
+
+.wip-board .sticky-col {
+  width: 112px;
+  text-align: left;
+}
+
+.wip-board th.wip-crew {
+  font-weight: 700;
+  padding-top: 8px;
+}
+
+.wip-board .wip-group-start {
+  border-left: 1px solid var(--sk-border);
+}
+
+.wip-board tbody tr:last-child th,
+.wip-board tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.wip-total {
+  color: var(--sk-text-dimmed);
+}
+
+.wip-count {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.3;
+}
+
+.wip-count strong {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+}
+
+.wip-empty {
+  color: var(--sk-text-dimmed);
+}
+
+.wip-month th,
+.wip-month td {
+  padding-top: 2px;
+  padding-bottom: 6px;
+}
+
+.wip-month-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding-left: 5px;
+}
+
+.wip-month-label {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--sk-text-dimmed);
+}
+
+/* Positioned, so the visually hidden text stays inside the scrolling table. */
+.wip-bar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0 4px;
+}
+
+.wip-bar .segbar {
+  margin: 2px 0 1px;
+}
+
+.wip-ratio {
+  font-size: 12px;
+}
+
+.wip-reason {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--sk-danger);
+}
+
+.wip-late {
+  color: var(--sk-danger);
+  margin-left: 2px;
+}
+
+.urgency-A {
+  background: var(--sk-class-a-fill);
+}
+
+.urgency-B {
+  background: var(--sk-class-b-fill);
+}
+
+.urgency-C {
+  background: var(--sk-muted-surface);
+}
+
+/* The board's headers and cells are buttons, with the same feedback as the chips below. */
+.wip-head,
+.wip-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  min-height: 40px;
+  padding: 4px;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: var(--mantine-radius-md);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    transform 120ms ease;
+}
+
+.wip-head {
+  justify-content: center;
+  background: transparent;
+}
+
+.wip-cell {
+  justify-content: center;
+}
+
+.wip-head:hover,
+.wip-cell:hover {
+  border-color: var(--mantine-primary-color-filled);
+}
+
+.wip-head.is-selected,
+.wip-cell.is-selected {
+  border-color: var(--sk-focus);
+  box-shadow: inset 0 0 0 1px var(--sk-focus);
+}
+
+.wip-head:active,
+.wip-cell:active {
+  transform: translateY(1px);
+}
+
+.wip-head:focus-visible,
+.wip-cell:focus-visible {
+  outline: 2px solid var(--sk-focus);
+  outline-offset: 1px;
 }
 
 /* Chips and the overall cell are buttons: they share hover, focus and press feedback. */

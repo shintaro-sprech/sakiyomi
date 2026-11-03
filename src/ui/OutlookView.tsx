@@ -21,7 +21,7 @@ const CREW_COLUMN_WIDTH = 96
 
 export function ClassBadge({ value }: { value: PriorityClass }) {
   return (
-    <Badge variant="outline" color={CLASS_COLORS[value]} radius="sm" size="sm">
+    <Badge variant="outline" color={CLASS_COLORS[value]} radius="sm" size="sm" fz="xs" miw="max-content">
       {CLASS_LABELS[value]}
     </Badge>
   )

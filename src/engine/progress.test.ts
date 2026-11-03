@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import { createSampleData } from '../../sample-data/sample'
-import { stagnantDays, summarizeProgress } from './progress'
+import { orderDemands } from './demand'
+import { stagnantDays, summarizeProgress, summarizeWip, type WipColumn } from './progress'
 
 const today = '2026-11-03'
 const data = createSampleData(today)
@@ -66,5 +67,70 @@ describe('stagnantDays', () => {
     const lot = data.lots.find((candidate) => candidate.id === 'L1022-1')!
 
     expect(stagnantDays(lot, today)).toBe(4)
+  })
+})
+
+describe('summarizeWip', () => {
+  const columns = summarizeWip(data, orderDemands(data, today))
+  const at = (process: string) => columns.find((column) => column.process === process)!
+  const brief = (column: WipColumn) =>
+    Object.fromEntries(
+      Object.entries(column.cells)
+        .filter(([, cell]) => cell.quantity > 0)
+        .map(([urgency, cell]) => [urgency, [cell.quantity, cell.lots.length]]),
+    )
+
+  it('lays out processes by crew between the unreleased and finished columns', () => {
+    expect(columns.map((column) => column.process ?? column.kind)).toEqual([
+      'unreleased',
+      '切断',
+      '曲げ',
+      '溶接',
+      '切削',
+      '熱処理',
+      '研削',
+      '穴あけ',
+      '検査',
+      '梱包',
+      'finished',
+    ])
+    expect(at('研削').crew).toBe('機械班')
+  })
+
+  it('puts each lot where it sits, by why its order is needed', () => {
+    expect(brief(at('曲げ'))).toEqual({ 'A-due': [40, 2] })
+    expect(brief(at('梱包'))).toEqual({ 'A-stockout': [4, 1] })
+    expect(brief(at('検査'))).toEqual({ B: [12, 1] })
+    expect(brief(columns.at(-1)!)).toEqual({ 'A-stockout': [6, 1] })
+  })
+
+  it('counts pieces not yet released by order', () => {
+    const unreleased = columns[0].cells
+
+    expect(unreleased['A-stockout'].unreleased).toEqual([{ orderId: '1045', quantity: 30 }])
+    expect(unreleased.B.quantity).toBe(27)
+    expect(unreleased.C.quantity).toBe(40)
+  })
+
+  it("shows how far this month's pieces have got through each process", () => {
+    expect(at('曲げ').thisMonth).toEqual({ quantity: 70, passed: 30, here: 40 })
+    expect(at('梱包').thisMonth).toEqual({ quantity: 40, passed: 6, here: 4 })
+    expect(at('穴あけ').thisMonth).toBeNull()
+  })
+
+  it('counts a lot as past a process only after its last visit', () => {
+    const twice = { ...data, routes: { ...data.routes, 'A-100': [...data.routes['A-100']] } }
+    twice.routes['A-100'].splice(3, 0, { ...twice.routes['A-100'][1] })
+    const bending = summarizeWip(twice, orderDemands(twice, today)).find((column) => column.process === '曲げ')!
+
+    expect(twice.routes['A-100'].map((step) => step.name)).toEqual(['切断', '曲げ', '溶接', '曲げ', '検査'])
+    expect(bending.thisMonth).toEqual({ quantity: 70, passed: 0, here: 40 })
+  })
+
+  it('orders processes by how early they come in a route when there are no crews', () => {
+    const noCrews = { ...data, crews: [] }
+    const order = summarizeWip(noCrews, orderDemands(noCrews, today)).map((column) => column.process ?? column.kind)
+
+    expect(order).toEqual(['unreleased', '切断', '切削', '曲げ', '熱処理', '研削', '穴あけ', '溶接', '検査', '梱包', 'finished'])
   })
 })
