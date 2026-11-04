@@ -17,7 +17,7 @@ In a small job shop, the plan lives in a spreadsheet and the know-how lives in o
 - **Gantt** — equipment × time. A deterministic scheduler places every lot and the not-yet-released quantity on the machines, with working hours, weekends, setup time from one shape to another, transfer time between steps, material arrival dates and the people at work in each crew (one person per running machine). Each machine starts from the part it ran last, so its first setup is counted too. Each bar shows its lot, part, shape and pieces; the quantity not yet released runs under the Lot number it will get. Bars turn amber or red when an order is close to or past its due date. Click a machine for everything it runs in time order, with each setup from shape to shape, or click a bar for how its lot flows from step to step. A line marks the time now on the first day; hovering over a bar or moving keyboard focus to it shows its details, and a machine's list counts its setups and running hours. Steps a lot has already been through show where and when they were run, and the lot's flow links to its row in the progress tab.
 - **Ask Claude** — describe an event in plain Japanese. Claude reads the plan, simulates the event, finds where the work is stuck and tries countermeasures (overtime, holiday work, expediting, help from another crew). It then puts two or three options on the screen. The effect shown on each card — late orders, this month's gross profit, overtime and holiday hours — is recomputed by the scheduler, not taken from Claude's text.
 - **Decision log** — adopting an option asks for an optional note on why. The change, Claude's reasoning, the trade-off and the planner's note are kept together, so the next person can see how the call was made. Any decision can be undone.
-- **Settings and data** — working hours and days, the due-date vs setup balance, transfer time, labor rate and overtime and holiday premiums, price, material cost, stock and shipments per part, setup time, running cost per machine hour and the part each machine ran last, stopping a machine, and the usual and daily headcount of each crew. Data can be exported to and imported from an Excel workbook with ten sheets (parts with the material on hand, routes, equipment, setups, crews, attendance, open orders, lots, the steps each lot has been through, and the customer orders behind each open order); the last two are optional.
+- **Settings and data** — working hours and days, the due-date vs setup balance, transfer time, labor rate and overtime and holiday premiums, price, material cost, stock and shipments per part, setup time, running cost per machine hour and the part each machine ran last, stopping a machine, and the usual and daily headcount of each crew. Data can be exported to and imported from an Excel workbook with ten sheets (parts with the material on hand, routes, equipment, setups, crews, attendance, open orders, lots, the steps each lot has been through, and the customer orders behind each open order); crews, attendance and the last two are optional (see [Try it with your own data](#try-it-with-your-own-data)).
 
 ## How Claude is used
 
@@ -46,9 +46,37 @@ Open http://localhost:5173. Progress, Gantt, settings and Excel work without a k
 
 Tests for the scheduler, the tools and the Excel round trip: `npm test`.
 
+## Try it with your own data
+
+There is no database and no sign-in. Plant data goes in and out as one Excel workbook.
+
+1. In Settings and data (設定とデータ), press Excel に書き出す (export). The sample comes out as `sakiyomi-data.xlsx`; use it as the template.
+2. Replace the rows from row 2 down on each sheet with your plant's values. Keep the headers in row 1 as they are.
+3. Press Excel を読み込む (import). If anything is wrong, nothing is replaced and every problem is listed with its sheet and row, such as 注残の5行目：納期を日付で入れてください (open orders, row 5: enter the due date as a date).
+
+| Sheet | Columns |
+| --- | --- |
+| 品目 parts | 型番 part number, 形状 shape, 売価 price, 材料費 material cost, 在庫 stock, 月間の出荷数 monthly shipments, 材料在庫 material on hand (leave empty if you do not track it) |
+| 工程表 routes | 型番 part number, 順番 order, 工程名 process, 1個あたりの分 minutes per piece |
+| 設備 equipment | 設備ID machine ID, 設備名 name, 担当工程 process, 段取りの分 setup minutes, 1時間の運転費 running cost per hour, 直前の型番 part it ran last |
+| 段取り setups | 工程名 process, 前の形状 from shape, 次の形状 to shape, 段取りの分 setup minutes |
+| 注残 open orders | 注番 order, 型番 part number, 数量 quantity, 納期 due date, 材料入荷日 material arrival date |
+| Lot lots | Lot番号 lot, 注番 order, 数量 quantity, 今の工程番号 current step number (完了 when finished), その工程に着いた日 date it reached that step |
+| 班 crews | 班名 crew, 担当工程 processes (written 切断、曲げ), 人数 people |
+| 出勤 attendance | 班名 crew, 日付 date, 人数 people |
+| 実績 step records | Lot番号 lot, 工程番号 step number, 設備ID machine ID, 開始 start, 終了 end, 良品数 good pieces, 不良数 defects |
+| 受注 customer orders | 受注番号 customer order, 注番 order, 取引先 customer, 数量 quantity, 希望納期 requested date, 回答納期 promised date |
+
+The first six sheets are required. Without crews and attendance the plan has no limit on people; without step records and customer orders the plan is the same, and only the lot history and promised dates are missing. Dates are written 2026-11-12 or 2026/11/12, and the start and end of a step 2026-11-12 09:30; Excel date cells work too. A CSV file can be opened in Excel and saved as .xlsx first. Working hours, labor rate and the other settings are not in the workbook; set them on the same screen. Importing clears the decision log.
+
+Where the data goes:
+
+- The data, settings and decision log are kept only in this browser's localStorage. No server stores them.
+- Only when you use Ask Claude, the conversation and the tool results Claude asks for go through the Worker to the Anthropic API. These carry the contents of the plan: orders, part numbers, quantities, due dates, lots, machines, prices and material costs, the labor rate and customer names. The Worker does not store them. How Anthropic handles them is set by the Anthropic API terms.
+
 ## Data
 
-The sample data in [sample-data/sample.ts](sample-data/sample.ts) was made up for this project. Part numbers, machines and quantities do not come from any real plant, and there is no personal data. Dates are relative to the day the app is opened. Data you load stays in your browser.
+The sample data in [sample-data/sample.ts](sample-data/sample.ts) was made up for this project. Part numbers, machines and quantities do not come from any real plant, and there is no personal data. Dates are relative to the day the app is opened.
 
 ## Layout
 
