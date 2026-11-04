@@ -664,7 +664,7 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: '
       <Text size="xs" c="dimmed" className="phrase">
         {label}
       </Text>
-      <Text fz={22} fw={700} c={tone} className="tabular" style={{ whiteSpace: 'nowrap' }}>
+      <Text c={tone} className="metric-value tabular">
         {value}
       </Text>
     </Paper>

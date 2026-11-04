@@ -2,36 +2,39 @@ import { describe, expect, it } from 'vitest'
 
 import { createSampleData } from '../../sample-data/sample'
 import type { PlanState } from '../engine/plan'
-import { createDefaultSettings } from '../engine/settings'
+import { createSampleSettings } from '../engine/settings'
 import { TOOL_NAMES } from './toolSchemas'
 import { changesToApply, describeSituation, executeTool } from './tools'
 
 const today = '2026-11-03'
-const state: PlanState = { data: createSampleData(today), settings: createDefaultSettings(), adopted: [], today }
+const state: PlanState = { data: createSampleData(today), settings: createSampleSettings(), adopted: [], today }
 
 describe('executeTool', () => {
   it('describes the current plan for Claude', () => {
     const situation = describeSituation(state)
 
     expect(situation.today).toBe(today)
+    expect(situation.weekday).toBe('火')
     expect(situation.workdays).toBe('月火水木金')
-    // Material for 35 of the 55 is not on hand; ordered today (7 days) it lands after the start.
+    expect(situation.shifts).toBe('3交代（00:00・08:00・16:00に交代）')
+    expect(situation.workHours).toBe('00:00-24:00')
+    // Material for 104 of the 164 is not on hand; ordered today (7 days) it lands after the start.
     expect(situation.thisMonth.replenishments).toEqual([
       {
         partNumber: 'B-200',
-        quantity: 55,
+        quantity: 164,
         needBy: '2026-11-25',
-        startAt: '2026-11-06T10:00',
+        startAt: '2026-11-06T12:00',
         materialOrderBy: '2026-10-30',
         materialLate: true,
         materialArrives: '2026-11-10',
       },
     ])
-    expect(situation.orders.find((order) => order.id === '1045')?.deliveries[0]).toMatchObject({ answered: '2026-11-11', daysLate: 1 })
+    expect(situation.orders.find((order) => order.id === '1045')?.deliveries[0]).toMatchObject({ answered: '2026-11-11', daysLate: 2 })
     expect(situation.orders.find((order) => order.id === '1045')).toMatchObject({
-      unstarted: 30,
-      forecastFinish: '2026-11-12T12:10',
-      lateDays: -1,
+      unstarted: 90,
+      forecastFinish: '2026-11-13T01:10',
+      lateDays: 0,
     })
   })
 
@@ -47,8 +50,8 @@ describe('executeTool', () => {
     expect(result.changes).toEqual(['注番1045の材料が2日遅れる'])
     expect(result.newlyLate).toEqual(['1045'])
     expect(result.shifted.find((shift: { orderId: string }) => shift.orderId === '1045')).toMatchObject({
-      before: '2026-11-12T12:10',
-      after: '2026-11-16T13:45',
+      before: '2026-11-13T01:10',
+      after: '2026-11-17T07:00',
     })
     expect(state.adopted).toEqual([])
   })
@@ -58,10 +61,10 @@ describe('executeTool', () => {
     const current = JSON.parse(executeTool(TOOL_NAMES.getOrderPlan, { orderId: '1045' }, state).content)
     const delayed = JSON.parse(executeTool(TOOL_NAMES.getOrderPlan, { orderId: '1045', changes: [delay] }, state).content)
 
-    expect(current.forecastFinish).toBe('2026-11-12T12:10')
+    expect(current.forecastFinish).toBe('2026-11-13T01:10')
     expect(delayed.changes).toEqual(['注番1045の材料が2日遅れる'])
-    expect(delayed.forecastFinish).toBe('2026-11-16T13:45')
-    expect(delayed.operations[0]).toMatchObject({ lot: 'L1045-1', planned: true, start: '2026-11-06T08:00' })
+    expect(delayed.forecastFinish).toBe('2026-11-17T07:00')
+    expect(delayed.operations[0]).toMatchObject({ lot: 'L1045-1', planned: true, start: '2026-11-06T00:00' })
     expect(state.adopted).toEqual([])
   })
 
@@ -72,16 +75,10 @@ describe('executeTool', () => {
         event: [{ kind: 'materialDelay', orderId: '1045', days: 2 }],
         options: [
           {
-            title: 'B-200の3工程で残業',
-            changes: ['MC-1', 'HT-1', 'GRD-1'].map((equipmentId) => ({
-              kind: 'overtime',
-              equipmentId,
-              from: '2026-11-03',
-              to: '2026-11-13',
-              minutesPerDay: 120,
-            })),
+            title: 'マシニング1を土曜に動かす',
+            changes: [{ kind: 'holidayWork', equipmentId: 'MC-1', date: '2026-11-07' }],
             reason: 'マシニング1が詰まっている',
-            tradeoff: '残業が増える',
+            tradeoff: '休日出勤が増える',
           },
         ],
       },
@@ -91,10 +88,30 @@ describe('executeTool', () => {
     expect(outcome.isError).toBe(false)
     expect(outcome.event?.labels).toEqual(['注番1045の材料が2日遅れる'])
     expect(outcome.event?.effect.comparison.newlyLate).toEqual(['1045'])
-    expect(outcome.options?.[0].labels[0]).toBe('マシニング1で11/3〜11/13に、1日120分残業する')
-    expect(outcome.options?.[0].effect.comparison.lateAfter).toBe(0)
-    expect(outcome.options?.[0].effect.overtimeHoursDelta).toBeGreaterThan(0)
+    expect(outcome.options?.[0].labels[0]).toBe('マシニング1を11/7に休日出勤で動かす')
+    expect(outcome.options?.[0].effect.holidayHoursDelta).toBe(24)
     expect(outcome.options?.[0].effect.grossProfitDelta).toBeLessThan(0)
+  })
+
+  it('refuses overtime on a day the three shifts already fill', () => {
+    const outcome = executeTool(
+      TOOL_NAMES.presentOptions,
+      {
+        event: [],
+        options: [
+          {
+            title: '残業する',
+            changes: [{ kind: 'overtime', equipmentId: 'MC-1', from: '2026-11-04', to: '2026-11-04', minutesPerDay: 120 }],
+            reason: 'r',
+            tradeoff: 't',
+          },
+        ],
+      },
+      state,
+    )
+
+    expect(outcome.isError).toBe(true)
+    expect(outcome.options).toBeUndefined()
   })
 
   it('simulates someone of a crew being off', () => {
@@ -171,10 +188,10 @@ describe('executeTool', () => {
 
     expect(situation.orders.find((order) => order.id === '1022')?.deliveries[0]).toMatchObject({ customer: '取引先D', channel: 'distributor' })
     expect(situation.orders.find((order) => order.id === '1030')?.deliveries[0]).toMatchObject({ channel: 'direct' })
-    // Reported on 10/31: 6 left selling 20 a month is 4 on 11/3, six days of sales, so an order is due now.
-    expect(distributor('取引先E', 'B-200')).toMatchObject({ stockNow: 4, daysLeft: 6, orderOn: today, orderQuantity: 20 })
-    // 50 selling 30 a month is 47 on 11/3; with 45 ordered and not shipped, 92 days, at 30 days on 1/4.
-    expect(distributor('取引先D', 'A-100')).toMatchObject({ stockNow: 47, onOrder: 45, daysLeft: 92, orderOn: '2027-01-04' })
+    // Reported on 10/31: 18 left selling 60 a month is 12 on 11/3, six days of sales, so an order is due now.
+    expect(distributor('取引先E', 'B-200')).toMatchObject({ stockNow: 12, daysLeft: 6, orderOn: today, orderQuantity: 60 })
+    // 150 selling 90 a month is 141 on 11/3; with 135 ordered and not shipped, 92 days, at 30 days on 1/4.
+    expect(distributor('取引先D', 'A-100')).toMatchObject({ stockNow: 141, onOrder: 135, daysLeft: 92, orderOn: '2027-01-04' })
   })
 
   it('tells Claude which processes each machine takes and how fast it runs', () => {

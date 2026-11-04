@@ -70,6 +70,20 @@ describe('schedule', () => {
     expect(result.orders[0].finishDate).toBe('2026-11-09')
   })
 
+  it('runs through the night with three shifts and stops for the weekend', () => {
+    const result = plan({
+      start: FRIDAY,
+      settings: { shifts: 3 },
+      routes: { P: oneStep('加工', 60) },
+      equipment: [machine('M1', '加工')],
+      orders: [order('1', 'P', 30, '2026-11-20')],
+    })
+
+    // 30 hours from Friday 00:00: all of Friday, then Monday from 00:00 to 06:00.
+    expect(result.operations[0].startAt).toBe('2026-11-06T00:00')
+    expect(result.operations[0].endAt).toBe('2026-11-09T06:00')
+  })
+
   it('charges setup only when the part number changes, and weighs it against due dates', () => {
     const input = {
       routes: { P1: oneStep('加工', 60), P2: oneStep('加工', 60) },
@@ -196,6 +210,34 @@ describe('schedule', () => {
     expect(onM(60)).toEqual(['H', 'L'])
     // H reaches M at 15:00, so M runs L from 08:00 rather than stand idle for seven hours.
     expect(onM(420)).toEqual(['L', 'H'])
+  })
+
+  it('measures that wait in working time, so a weekend in between does not shut urgent work out', () => {
+    const onM = plan({
+      start: FRIDAY,
+      settings: { shifts: 3 },
+      routes: {
+        L: [
+          { name: '前L', minutesPerPiece: 22 * 60 },
+          { name: '加工', minutesPerPiece: 600 },
+        ],
+        H: [
+          { name: '前H', minutesPerPiece: 24 * 60 },
+          { name: '加工', minutesPerPiece: 60 },
+        ],
+      },
+      equipment: [machine('A', '前H'), machine('B', '前L'), machine('M', '加工')],
+      orders: [order('L', 'L', 1, '2026-11-30'), order('H', 'H', 1, '2026-11-30')],
+      changes: [{ kind: 'expedite', orderId: 'H' }],
+    })
+      .operations.filter((operation) => operation.equipmentId === 'M')
+      .map((operation) => [operation.orderId, operation.startAt])
+
+    // L reaches M at 22:00 on Friday and H at 00:00 on Monday, two working hours later.
+    expect(onM).toEqual([
+      ['H', '2026-11-09T00:00'],
+      ['L', '2026-11-09T01:00'],
+    ])
   })
 
   it('runs a faster machine in less time than the route says', () => {

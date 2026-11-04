@@ -11,6 +11,7 @@ import { crewOfEquipment, crewPeople } from './crews'
 import { addDays, daysBetween, MINUTES_PER_DAY, minuteToDate, minuteToDateTime, parseClock, weekday } from './dates'
 import { orderDemands, type PriorityClass } from './demand'
 import type { Scenario } from './scenario'
+import { workHours } from './settings'
 import { setupMinutes } from './setup'
 import type { Crew, Equipment, IsoDate, Lot, PlantData } from './types'
 
@@ -211,7 +212,7 @@ const WAIT_SHARE = 0.75
 // List scheduler in the Giffler-Thompson style. Each round finds the
 // operation that could finish first, then lets every operation that would
 // start before that on the same equipment compete by priority, as long as it
-// starts within WAIT_SHARE of the way from the earliest start to that finish:
+// starts within WAIT_SHARE of the working time from the earliest start to that finish:
 // expedited first, then demand class (A this month, B next month, C later),
 // then a score mixing slack to the need date (days) and setup time (hours)
 // by settings.dueWeight, then need date, order id and lot id.
@@ -226,7 +227,7 @@ const WAIT_SHARE = 0.75
 // competition, so people go to the work with the higher priority.
 export function schedule(scenario: Scenario, planStart: IsoDate): ScheduleResult {
   const { data, settings } = scenario
-  const workEnd = parseClock(settings.workEnd)
+  const workEnd = parseClock(workHours(settings).end)
   const jobs = buildJobs(scenario, planStart, workEnd)
   const crews = crewOfEquipment(data)
   const staffing = new Staffing(scenario, planStart)
@@ -280,7 +281,11 @@ export function schedule(scenario: Scenario, planStart: IsoDate): ScheduleResult
       const sameGroup = (candidate: Candidate) =>
         candidate.machine === earliest.machine || (crewWide && candidate.machine.crew === earliest.machine.crew)
       const firstStart = Math.min(...candidates.filter(sameGroup).map((candidate) => candidate.start))
-      const waitUntil = firstStart + WAIT_SHARE * (earliest.end - firstStart)
+      // In working time: in calendar time a weekend in between puts the cut-off on the
+      // weekend, leaving out urgent work that could start first thing on Monday.
+      const calendar = earliest.machine.calendar
+      const span = workingSegments(calendar, firstStart, earliest.end).reduce((total, segment) => total + segment.end - segment.start, 0)
+      const waitUntil = addWorkingMinutes(calendar, firstStart, WAIT_SHARE * span) ?? earliest.end
       const conflict = candidates.filter(
         (candidate) => candidate.start < earliest.end && candidate.start <= waitUntil && sameGroup(candidate),
       )

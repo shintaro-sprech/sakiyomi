@@ -30,7 +30,7 @@ async function brief() {
 async function call(name, inputText) {
   const { executeTool } = await load('src/assistant/tools.ts')
   const { createSampleData } = await load('sample-data/sample.ts')
-  const { createDefaultSettings } = await load('src/engine/settings.ts')
+  const { createSampleSettings } = await load('src/engine/settings.ts')
   const { localToday } = await load('src/engine/dates.ts')
 
   let input
@@ -41,7 +41,8 @@ async function call(name, inputText) {
     return 1
   }
   const today = localToday()
-  const state = { data: createSampleData(today), settings: createDefaultSettings(), adopted: [], today }
+  // The app starts the sample with these settings: three shifts on weekdays.
+  const state = { data: createSampleData(today), settings: createSampleSettings(), adopted: [], today }
   const outcome = executeTool(name, input, state)
   console.log(outcome.content)
 

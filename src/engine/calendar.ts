@@ -1,5 +1,6 @@
 import { daysBetween, MINUTES_PER_DAY, parseClock, weekday } from './dates'
 import type { Scenario } from './scenario'
+import { workHours } from './settings'
 import type { IsoDate } from './types'
 
 // Working time of one piece of equipment, in minutes from 00:00 of the plan's first day.
@@ -22,11 +23,12 @@ export const SEARCH_LIMIT_DAYS = 366
 
 export function equipmentCalendar(scenario: Scenario, equipmentId: string, planStart: IsoDate): Calendar {
   const day = (date: IsoDate) => daysBetween(planStart, date)
+  const hours = workHours(scenario.settings)
   return {
     planStart,
     firstWeekday: weekday(planStart),
-    workStart: parseClock(scenario.settings.workStart),
-    workEnd: parseClock(scenario.settings.workEnd),
+    workStart: parseClock(hours.start),
+    workEnd: parseClock(hours.end),
     workWeekdays: scenario.settings.workWeekdays,
     down: scenario.downtime
       .filter((entry) => entry.equipmentId === equipmentId)
@@ -68,19 +70,27 @@ export function nextWorkingMinute(calendar: Calendar, t: number): number | null 
   return null
 }
 
+// Night work by law: 22:00 to 05:00.
+const NIGHT_START = 22 * 60
+const NIGHT_END = 5 * 60
+
 // Splits the working time between start and end into regular hours, overtime
-// (past the end of a regular day) and holiday work (on a day off), in minutes.
+// (past the end of a regular day) and holiday work (on a day off), in minutes, and
+// counts apart how much of it, of any kind, falls at night.
 export function splitWorkingMinutes(
   calendar: Calendar,
   start: number,
   end: number,
-): { regular: number; overtime: number; holiday: number } {
-  const split = { regular: 0, overtime: 0, holiday: 0 }
+): { regular: number; overtime: number; holiday: number; night: number } {
+  const split = { regular: 0, overtime: 0, holiday: 0, night: 0 }
   if (end <= start) return split
   const overlap = (from: number, to: number) => Math.max(0, Math.min(end, to) - Math.max(start, from))
   for (let day = Math.floor(start / MINUTES_PER_DAY); day <= Math.floor((end - 1) / MINUTES_PER_DAY); day += 1) {
     const window = workingWindow(calendar, day)
     if (!window) continue
+    const dayStart = day * MINUTES_PER_DAY
+    const worked = (from: number, to: number) => overlap(Math.max(window.start, from), Math.min(window.end, to))
+    split.night += worked(dayStart, dayStart + NIGHT_END) + worked(dayStart + NIGHT_START, dayStart + MINUTES_PER_DAY)
     if (!isRegularDay(calendar, day)) {
       split.holiday += overlap(window.start, window.end)
       continue

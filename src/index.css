@@ -6,15 +6,19 @@
  */
 
 :root {
+  /* The ground the cards sit on: ivory, or warm black in dark mode. Cards stay the body color. */
+  --sk-page: #FAF9F5;
   --sk-border: var(--mantine-color-default-border);
   --sk-surface: var(--mantine-color-body);
   --sk-muted-surface: var(--mantine-color-gray-0);
   --sk-text-dimmed: var(--mantine-color-dimmed);
-  --sk-accent: var(--mantine-color-teal-filled);
+  /* Bars of planned work: blue that keeps white text at 4.5:1. */
+  --sk-accent: #1F63B8;
   --sk-wip: var(--mantine-color-blue-text);
   --sk-wip-fill: var(--mantine-color-blue-4);
   --sk-focus: var(--mantine-primary-color-filled);
-  --sk-done: var(--mantine-color-teal-filled);
+  /* Done: the green two steps lighter than its darkest, still 6:1 under white text. */
+  --sk-done: var(--mantine-color-teal-7);
   --sk-unstarted: var(--mantine-color-gray-5);
   --sk-danger: var(--mantine-color-red-text);
   --sk-warn: var(--mantine-color-orange-text);
@@ -30,13 +34,13 @@
   --sk-selected-fill: var(--mantine-color-teal-0);
   --sk-bar-text: var(--mantine-color-white);
   --sk-event: var(--mantine-color-yellow-0);
-  --sk-user-bubble: var(--mantine-color-teal-filled);
+  --sk-user-bubble: var(--mantine-primary-color-filled);
   --sk-assistant-bubble: var(--mantine-color-gray-1);
-  --sk-mascot: var(--mantine-color-teal-6);
-  --sk-mascot-dark: var(--mantine-color-teal-9);
-  --sk-mascot-face: var(--mantine-color-white);
-  --sk-mascot-eye: var(--mantine-color-dark-7);
-  --sk-mascot-lamp: var(--mantine-color-yellow-5);
+  --sk-mascot: #141413;
+  --sk-mascot-dark: #3D3D3A;
+  --sk-mascot-face: #FAF9F5;
+  --sk-mascot-eye: #141413;
+  --sk-mascot-lamp: #D97757;
 }
 
 /* Mantine's default dimmed gray is 3.3:1 on white; secondary text needs 4.5:1 (WCAG 1.4.3). */
@@ -46,20 +50,47 @@
 
 :root[data-mantine-color-scheme='dark'] {
   --mantine-color-dimmed: var(--mantine-color-dark-1);
-  /* teal-9 is under 3:1 on dark cards (WCAG 1.4.11); teal-5 is about 6:1. */
-  --sk-focus: var(--mantine-color-teal-5);
+  --sk-page: #1F1E1D;
+  /* The primary fill is ivory in dark mode; the ring takes the text color, about 12:1. */
+  --sk-focus: var(--mantine-color-dark-0);
+  --sk-accent: #2F74D0;
+  --sk-mascot: #E8E6DC;
+  --sk-mascot-dark: #C2C0B6;
+  --sk-mascot-eye: #1F1E1D;
   --sk-muted-surface: var(--mantine-color-dark-6);
   --sk-unstarted: var(--mantine-color-dark-3);
   --sk-fill-low: rgb(250 82 82 / 28%);
   --sk-fill-mid: rgb(250 176 5 / 26%);
-  --sk-fill-high: rgb(18 184 134 / 26%);
+  --sk-fill-high: rgb(140 171 106 / 26%);
   --sk-class-a-fill: rgb(250 82 82 / 24%);
   --sk-class-b-fill: rgb(253 126 20 / 22%);
   /* Opaque, so a table's hover color under the row does not show through. */
   --sk-selected-fill: color-mix(in srgb, var(--mantine-color-teal-6) 10%, var(--mantine-color-body));
   --sk-event: rgb(250 176 5 / 12%);
   --sk-assistant-bubble: var(--mantine-color-dark-5);
-  --sk-mascot-face: var(--mantine-color-gray-0);
+  --sk-mascot-face: #1F1E1D;
+  /* Done chips: white text at 4.5:1, and 3:1 against the dark cards. */
+  --sk-done: var(--mantine-color-teal-6);
+}
+
+/* The page and the header sit on the ground color; cards, panels and the menu stay the body color. */
+.mantine-AppShell-main,
+.mantine-AppShell-header {
+  background: var(--sk-page);
+}
+
+/* The chosen tab, menu item and segment are filled with the primary color, slate or ivory
+   by scheme; their text takes the matching contrast color rather than Mantine's fixed white. */
+.mantine-Tabs-tab[data-active],
+.mantine-NavLink-root[data-active],
+.mantine-SegmentedControl-label[data-active] {
+  color: var(--mantine-primary-color-contrast);
+}
+
+/* The slate mark needs an edge to stand off the warm black header. */
+:root[data-mantine-color-scheme='dark'] .app-logo {
+  border-radius: 7px;
+  box-shadow: 0 0 0 1px var(--mantine-color-dark-3);
 }
 
 /* Scrolling to a focused element keeps it clear of the fixed 56px header. */
@@ -74,9 +105,9 @@ html {
   outline-color: var(--sk-focus);
 }
 
-/* Mantine's inputs show focus as a border in the primary color, and teal-9 is under
-   3:1 on dark fields (WCAG 1.4.11). The selector outranks Mantine's own instead of
-   relying on stylesheet order, which differs between dev and build. */
+/* Mantine's inputs show focus as a border in the primary color; in dark mode it takes the
+   focus ring's color instead. The selector outranks Mantine's own instead of relying on
+   stylesheet order, which differs between dev and build. */
 :root[data-mantine-color-scheme='dark'] .mantine-Input-wrapper[data-variant] {
   --input-bd-focus: var(--sk-focus);
 }
@@ -116,7 +147,7 @@ html {
   box-shadow: inset -1px 0 0 var(--sk-border);
 }
 
-/* People of a crew on a day: teal while someone is free, orange when all are on machines. */
+/* People of a crew on a day: green while someone is free, clay when all are on machines. */
 .people .person-busy {
   color: var(--mantine-color-teal-8);
 }
@@ -189,10 +220,10 @@ html {
   background: var(--sk-selected-fill);
 }
 
-/* Mantine's darkest orange is 4.3:1 on white, so the class B badge is darker in light mode. */
+/* The class B badge takes a deeper clay in light mode, about 7:1 on white. */
 :root[data-mantine-color-scheme='light'] .class-badge-b {
-  color: rgb(179 59 0);
-  border-color: rgb(179 59 0);
+  color: var(--mantine-color-orange-8);
+  border-color: var(--mantine-color-orange-8);
 }
 
 /* The fill is faint, so a bar on the left edge marks the chosen row. */
@@ -674,6 +705,23 @@ tr.is-chosen .mantine-Anchor-root {
   position: relative;
 }
 
+/* Where one shift hands over to the next: a dashed hairline above the shade of days off
+   and under the bars, which come later at the same level, at 3:1 or more on weekdays and
+   on days off (WCAG 1.4.11). */
+.gantt-shift {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 0;
+  border-left: 1px dashed var(--mantine-color-gray-6);
+  pointer-events: none;
+}
+
+:root[data-mantine-color-scheme='dark'] .gantt-shift {
+  border-left-color: var(--mantine-color-dark-2);
+}
+
 .gantt-now {
   position: absolute;
   top: 0;
@@ -776,7 +824,7 @@ tr.is-chosen .mantine-Anchor-root {
   top: 0;
   z-index: 4;
   background: var(--sk-surface);
-  min-height: 48px;
+  min-height: 64px;
   font-size: var(--mantine-font-size-xs);
   color: var(--sk-text-dimmed);
 }
@@ -803,6 +851,59 @@ tr.is-chosen .mantine-Anchor-root {
   border-left: 1px solid var(--sk-border);
   white-space: nowrap;
   overflow: hidden;
+}
+
+/* − days + : one control, the three parts joined edge to edge. */
+.span-control > :first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.span-control > :last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.span-control > .mantine-Button-root {
+  min-width: 96px;
+  border-radius: 0;
+  margin: 0 -1px;
+}
+
+/* Hours under the dates: a short tick at the foot of the header, its number above it. */
+.gantt-hours {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.gantt-hour {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  height: 6px;
+  background: var(--sk-text-dimmed);
+}
+
+.gantt-hour-label {
+  position: absolute;
+  bottom: 22px;
+  left: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 14px;
+  color: var(--sk-text-dimmed);
+  font-variant-numeric: tabular-nums;
+}
+
+/* At the line between days: the opening hour just right of it, the closing hour just left. */
+.gantt-hour-label.is-start {
+  transform: translateX(3px);
+}
+
+.gantt-hour-label.is-end {
+  transform: translateX(calc(-100% - 3px));
 }
 
 .gantt-day.is-off,
@@ -1003,7 +1104,7 @@ tr.is-before > * {
   align-self: flex-end;
   max-width: 88%;
   background: var(--sk-user-bubble);
-  color: var(--mantine-color-white);
+  color: var(--mantine-primary-color-contrast);
   white-space: pre-wrap;
   border-bottom-right-radius: 4px;
 }
@@ -1270,5 +1371,411 @@ tr.is-before > * {
   .chip {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* This month: what to act on today beside the month's figures */
+
+.outlook-hero {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-lg);
+  align-items: flex-start;
+}
+
+.today-focus {
+  flex: 999 1 520px;
+  min-width: 0;
+}
+
+.today-focus-title {
+  font-size: 30px;
+  line-height: 1.25;
+}
+
+.focus-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.focus-item {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--sk-border);
+  animation: sk-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.focus-number {
+  flex: none;
+  width: 24px;
+  font-family: var(--mantine-font-family-headings);
+  font-size: 26px;
+  line-height: 1;
+  color: var(--sk-text-dimmed);
+}
+
+.focus-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.focus-tag {
+  flex: none;
+  white-space: nowrap;
+}
+
+.profit-card {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+
+.profit-value {
+  font-family: var(--mantine-font-family-headings);
+  font-weight: 500;
+  font-size: 44px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+/* A label on two lines pushes its number down; numbers in a row line up at the foot. */
+.metric {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--sk-border);
+}
+
+.metric-value {
+  font-family: var(--mantine-font-family-headings);
+  font-size: 26px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+/* Where each order goes from today */
+
+.flow-scroll {
+  overflow-x: auto;
+}
+
+.flow-grid {
+  min-width: 760px;
+}
+
+.flow-lanes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* No gap between the columns: the label's own padding keeps the space, so nothing scrolled
+   under the label shows through. */
+.flow-row {
+  display: grid;
+  grid-template-columns: 222px minmax(0, 1fr);
+  align-items: center;
+}
+
+.flow-scroll:focus-visible {
+  outline: 2px solid var(--sk-focus);
+  outline-offset: 2px;
+}
+
+/* The lane's name stays in view while a narrow screen scrolls the timeline sideways. */
+.flow-label {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  align-self: stretch;
+  background: var(--mantine-color-body);
+}
+
+.flow-label {
+  overflow: hidden;
+  padding-right: 12px;
+}
+
+.flow-name {
+  white-space: nowrap;
+}
+
+.flow-part {
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .flow-row {
+    grid-template-columns: 140px minmax(0, 1fr);
+  }
+
+  .flow-label {
+    padding-right: 8px;
+  }
+
+  /* The part and pieces go under the order number, inside the narrow column. */
+  .flow-name {
+    white-space: normal;
+  }
+
+  .flow-part {
+    display: block;
+    margin-left: 0;
+  }
+
+  .metric-value {
+    font-size: 22px;
+  }
+
+  .flow-grid {
+    min-width: 680px;
+  }
+}
+
+.flow-ticks {
+  position: relative;
+  height: 22px;
+}
+
+.flow-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: var(--mantine-font-size-xs);
+  color: var(--sk-text-dimmed);
+  white-space: nowrap;
+}
+
+.flow-tick.is-today {
+  color: var(--mantine-color-text);
+  font-weight: 700;
+}
+
+.flow-track {
+  position: relative;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--sk-muted-surface);
+}
+
+/* In dark mode the lane is the card itself with an edge, so bars keep 3:1 against it. */
+:root[data-mantine-color-scheme='dark'] .flow-track:not(.flow-ticks) {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--sk-border);
+}
+
+.flow-track.is-stock {
+  height: 52px;
+}
+
+/* Today: clay, at 3:1 or more against the lane. It beats twice as the page opens, then holds. */
+.flow-today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--mantine-color-orange-7);
+  animation: sk-beat 1.6s ease-in-out 2;
+}
+
+:root[data-mantine-color-scheme='dark'] .flow-today {
+  background: var(--mantine-color-orange-4);
+}
+
+.flow-bar {
+  position: absolute;
+  top: 11px;
+  height: 14px;
+  min-width: 6px;
+  border-radius: 7px;
+  background: var(--sk-accent);
+  transform-origin: left center;
+  animation: sk-grow 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.flow-bar.is-late {
+  background: var(--sk-late-fill);
+}
+
+:root[data-mantine-color-scheme='dark'] .flow-bar.is-late {
+  background: var(--mantine-color-red-6);
+}
+
+/* The finish date sits between the due date's ticks, on a pill so a bar under it never hides it. */
+.flow-finish {
+  position: absolute;
+  z-index: 1;
+  top: 9px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--mantine-color-body);
+  font-size: var(--mantine-font-size-xs);
+  line-height: 18px;
+  font-weight: 700;
+  color: var(--mantine-color-blue-text);
+  white-space: nowrap;
+  animation: sk-fade 0.4s ease both;
+}
+
+.flow-finish.is-late {
+  color: var(--sk-danger);
+}
+
+.flow-finish.is-left {
+  margin-left: 0;
+  transform: translateX(calc(-100% - 6px));
+}
+
+/* The due date: ticks at the lane's top and bottom, clear of the bar and its label in between,
+   or an arrow at the edge when it is after the end of next month. */
+.flow-due {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: linear-gradient(
+    var(--mantine-color-text) 0 8px,
+    transparent 8px calc(100% - 8px),
+    var(--mantine-color-text) calc(100% - 8px)
+  );
+}
+
+.flow-due.is-beyond {
+  top: 10px;
+  bottom: auto;
+  width: 0;
+  margin-left: -10px;
+  background: none;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-left: 10px solid var(--mantine-color-text);
+}
+
+.flow-note {
+  position: absolute;
+  top: 8px;
+  margin-left: 8px;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--sk-text-dimmed);
+  white-space: nowrap;
+}
+
+/* Stripes in the full late color, so the band keeps 3:1 against the lane in both schemes. */
+.flow-short {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  border-radius: 6px;
+  background: repeating-linear-gradient(135deg, var(--sk-short-stripe) 0 3px, transparent 3px 8px);
+  animation: sk-fade 0.6s ease both;
+}
+
+:root {
+  --sk-short-stripe: var(--sk-late-fill);
+}
+
+:root[data-mantine-color-scheme='dark'] {
+  --sk-short-stripe: var(--mantine-color-red-6);
+}
+
+.flow-short-label {
+  position: absolute;
+  z-index: 1;
+  top: 2px;
+  left: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--mantine-color-body);
+  color: var(--sk-danger);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* The material mark keeps to the lower half, below the shortage label. */
+.flow-mark {
+  position: absolute;
+  top: 28px;
+  bottom: 4px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--mantine-color-blue-text);
+}
+
+.flow-mark-label {
+  position: absolute;
+  bottom: -2px;
+  left: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--mantine-color-body);
+  color: var(--mantine-color-blue-text);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+@keyframes sk-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes sk-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes sk-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sk-beat {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Mantine's own transitions follow the setting already; these are ours. */
+@media (prefers-reduced-motion: reduce) {
+  .focus-item,
+  .flow-today,
+  .flow-bar,
+  .flow-finish,
+  .flow-short {
+    animation: none;
   }
 }

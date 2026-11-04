@@ -152,7 +152,10 @@ export type ChannelStock = {
 export type Settings = {
   // How many days the Gantt chart shows.
   horizonDays: number
-  // Working hours as HH:MM.
+  // 1: a day shift only, between workStart and workEnd. 3: three shifts that cover the
+  // whole day, so there is no time left for overtime (see workHours in settings.ts).
+  shifts: 1 | 3
+  // The day shift's hours as HH:MM, kept while three shifts run.
   workStart: string
   workEnd: string
   // 0 = Sunday ... 6 = Saturday.
@@ -165,8 +168,10 @@ export type Settings = {
   // Lots sitting at a step this many days or more get a warning.
   stagnationWarningDays: number
   // Labor cost per person-hour in yen, and the premiums on top of it
-  // (0.25 = 25%; the statutory minimums in Japan are 25% and 35%).
+  // (0.25 = 25%; the statutory minimums in Japan are 25% and 35%). The night premium is
+  // for work between 22:00 and 05:00 (25% by law) and adds to the others.
   laborRate: number
   overtimePremium: number
   holidayPremium: number
+  nightPremium: number
 }

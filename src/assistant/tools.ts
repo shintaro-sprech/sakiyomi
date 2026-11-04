@@ -1,7 +1,9 @@
 import { compareSchedules, type ScheduleComparison } from '../engine/compare'
+import { weekday } from '../engine/dates'
 import { orderDemands, replenishments, type Replenishment } from '../engine/demand'
 import { monthlyOutlook, unusedChanges, type MonthlyOutlook } from '../engine/economics'
 import { releaseTiming, runPlan, type PlanState, type ReleaseTiming } from '../engine/plan'
+import { SHIFT_STARTS, workHours } from '../engine/settings'
 import { summarizeProgress } from '../engine/progress'
 import { channelOutlook, deliveriesOf } from '../engine/records'
 import { ChangeError, describeChange, parseChange, sameChange, type Change } from '../engine/scenario'
@@ -17,6 +19,7 @@ export type Effect = {
   grossProfitDelta: number
   overtimeHoursDelta: number
   holidayHoursDelta: number
+  nightHoursDelta: number
   // Overtime and holiday work among the changes that nothing runs in.
   unusedChanges: Change[]
 }
@@ -110,6 +113,7 @@ export function effectOf(state: PlanState, changes: Change[]): Effect {
     grossProfitDelta: outlook.grossProfit - outlookBefore.grossProfit,
     overtimeHoursDelta: round1(outlook.overtimeHours - outlookBefore.overtimeHours),
     holidayHoursDelta: round1(outlook.holidayHours - outlookBefore.holidayHours),
+    nightHoursDelta: round1(outlook.nightHours - outlookBefore.nightHours),
     unusedChanges: unusedChanges(after, changes, state.today),
   }
 }
@@ -125,13 +129,16 @@ export function describeSituation(state: PlanState) {
 
   return {
     today: state.today,
-    workHours: `${settings.workStart}-${settings.workEnd}`,
+    weekday: WEEKDAY_NAMES[weekday(state.today)],
+    shifts: settings.shifts === 1 ? '日勤' : `${settings.shifts}交代（${SHIFT_STARTS[settings.shifts].join('・')}に交代）`,
+    workHours: `${workHours(settings).start}-${workHours(settings).end}`,
     workdays: settings.workWeekdays.map((day) => WEEKDAY_NAMES[day]).join(''),
     transferMinutes: settings.transferMinutes,
     dueWeight: settings.dueWeight,
     laborRatePerHour: settings.laborRate,
     overtimePremium: settings.overtimePremium,
     holidayPremium: settings.holidayPremium,
+    nightPremium: settings.nightPremium,
     adoptedChanges: state.adopted.map((change) => describeChange(change, data)),
     thisMonth: summarizeOutlook(monthlyOutlook(plan, state.today), data, state.today, (item) => releaseTiming(state, item)),
     parts: data.parts,
@@ -233,6 +240,7 @@ function summarizeOutlook(
     grossProfit: outlook.grossProfit,
     overtimeHours: outlook.overtimeHours,
     holidayHours: outlook.holidayHours,
+    nightHours: outlook.nightHours,
     setupHours: outlook.setupHours,
     lateOrders: outlook.lateOrders,
     shortagesUntilEndOfNextMonth: outlook.shortages,
@@ -296,6 +304,7 @@ function simulate(state: PlanState, changes: Change[]) {
     grossProfitDelta: effect.grossProfitDelta,
     overtimeHoursDelta: effect.overtimeHoursDelta,
     holidayHoursDelta: effect.holidayHoursDelta,
+    nightHoursDelta: effect.nightHoursDelta,
     unusedChanges: effect.unusedChanges.map((change) => describeChange(change, data)),
     thisMonthAfter: summarizeOutlook(effect.outlook, data, state.today, (item) => releaseTiming(state, item, changes)),
   }
@@ -342,6 +351,7 @@ function presentOptions(state: PlanState, eventInput: unknown, optionsInput: unk
     grossProfitDelta: effect.grossProfitDelta,
     overtimeHoursDelta: effect.overtimeHoursDelta,
     holidayHoursDelta: effect.holidayHoursDelta,
+    nightHoursDelta: effect.nightHoursDelta,
   })
   return {
     content: JSON.stringify({

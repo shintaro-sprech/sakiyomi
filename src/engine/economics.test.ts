@@ -4,7 +4,7 @@ import { monthlyOutlook, unusedChanges } from './economics'
 import { runPlan } from './plan'
 import type { Change } from './scenario'
 import { createDefaultSettings } from './settings'
-import type { PlantData } from './types'
+import type { PlantData, Settings } from './types'
 
 // One machine that costs 10 yen a minute, labor at 50 yen a minute.
 function plant(quantity: number, stock = 100, monthlyUsage = 0): PlantData {
@@ -20,8 +20,8 @@ function plant(quantity: number, stock = 100, monthlyUsage = 0): PlantData {
   }
 }
 
-function outlook(data: PlantData, today: string, changes: Change[] = []) {
-  const settings = { ...createDefaultSettings(), transferMinutes: 0, laborRate: 3000 }
+function outlook(data: PlantData, today: string, changes: Change[] = [], shifts: Settings['shifts'] = 1) {
+  const settings = { ...createDefaultSettings(), transferMinutes: 0, laborRate: 3000, shifts }
   return monthlyOutlook(runPlan({ data, settings, adopted: changes, today }), today)
 }
 
@@ -49,6 +49,25 @@ describe('monthlyOutlook', () => {
     expect(result.regularHours).toBe(9)
     expect(result.overtimeHours).toBe(1)
     expect(result.laborCost).toBe(50 * (540 + 60 * 1.25))
+  })
+
+  it('runs three shifts through the night and adds the night premium from 22:00 to 05:00', () => {
+    // 30 hours from Tuesday 00:00 end on Wednesday at 06:00, with 12 of them at night.
+    const result = outlook(plant(30), '2026-11-03', [], 3)
+
+    expect(result.regularHours).toBe(30)
+    expect(result.nightHours).toBe(12)
+    expect(result.overtimeHours).toBe(0)
+    expect(result.laborCost).toBe(50 * (1800 + 720 * 0.25))
+  })
+
+  it('adds the night premium on top of the holiday premium', () => {
+    // Friday's 24 hours, then 6 hours of Saturday worked as holiday work, 5 of them at night.
+    const result = outlook(plant(30), '2026-11-06', [{ kind: 'holidayWork', equipmentId: 'M1', date: '2026-11-07' }], 3)
+
+    expect(result.holidayHours).toBe(6)
+    expect(result.nightHours).toBe(12)
+    expect(result.laborCost).toBe(50 * (1440 + 360 * 1.35 + 720 * 0.25))
   })
 
   it('adds the holiday premium to work on a day off', () => {

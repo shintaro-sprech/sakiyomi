@@ -6,13 +6,13 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import App from './App.tsx'
-import { theme } from './theme'
+import { cssVariablesResolver, theme } from './theme'
 
 // Light is the default: the app sits next to Excel in a factory office.
 // Dark is available from the header toggle.
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <MantineProvider theme={theme} defaultColorScheme="light">
+    <MantineProvider theme={theme} cssVariablesResolver={cssVariablesResolver} defaultColorScheme="light">
       <App />
     </MantineProvider>
   </StrictMode>,

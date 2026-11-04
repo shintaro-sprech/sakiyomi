@@ -4,7 +4,7 @@ import { createSampleData, sampleActuals, sampleChannelStocks, sampleCustomerOrd
 import { localToday } from '../engine/dates'
 import type { PlanState } from '../engine/plan'
 import { applyChanges, buildScenario, ChangeError, pinAddedOrders, type Change } from '../engine/scenario'
-import { createDefaultSettings } from '../engine/settings'
+import { createDefaultSettings, createSampleSettings } from '../engine/settings'
 import type { Equipment, PlantData, Settings } from '../engine/types'
 
 // A change the planner put into the plan, kept with the reasoning behind it.
@@ -41,7 +41,7 @@ function createInitialState(): SavedState {
   return {
     version: 3,
     data: createSampleData(localToday()),
-    settings: createDefaultSettings(),
+    settings: createSampleSettings(),
     decisions: [],
     dataSource: 'sample',
   }
@@ -53,17 +53,38 @@ function load(): SavedState {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as SavedState
-      if (parsed.version === 3) return withSampleAdditions(withProcessLists(parsed))
+      if (parsed.version === 3) return withSampleAdditions(withProcessLists(withShiftSettings(parsed)))
     }
     const previous = window.localStorage.getItem(PREVIOUS_KEY)
     if (previous) {
       const parsed = JSON.parse(previous) as Omit<SavedState, 'version'> & { version: number }
-      if (parsed.version === 2) return withSampleAdditions(withProcessLists(fromVersion2(parsed)))
+      if (parsed.version === 2) return withSampleAdditions(withProcessLists(withShiftSettings(fromVersion2(parsed))))
     }
   } catch {
     // Fall through to a fresh sample.
   }
   return createInitialState()
+}
+
+// Settings saved before shifts were kept had a day shift only and no night premium. Data
+// read from Excel keeps its day shift. The sample plant runs three shifts now, with three
+// times the quantities to fill them, so a sample saved before is made afresh: its orders and
+// the decisions on them no longer fit. The planner's other settings stay, the day shift's
+// hours among them.
+export function withShiftSettings(saved: SavedState, today = localToday()): SavedState {
+  const settings: Partial<Settings> = saved.settings
+  if (settings.shifts !== undefined) return saved
+  if (saved.dataSource !== 'sample') {
+    const { shifts, nightPremium } = createDefaultSettings()
+    return { ...saved, settings: { ...saved.settings, shifts, nightPremium } }
+  }
+  const { shifts, nightPremium } = createSampleSettings()
+  return {
+    ...saved,
+    data: createSampleData(today),
+    settings: { ...saved.settings, shifts, nightPremium },
+    decisions: [],
+  }
 }
 
 // Machines saved before one could take several processes had a single process and no

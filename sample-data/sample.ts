@@ -25,10 +25,10 @@ export function createSampleData(today: IsoDate): PlantData {
 
   const data: PlantData = {
     parts: [
-      { partNumber: 'A-100', shape: '板金', price: 6000, materialCost: 1200, stock: 120, monthlyUsage: 90, materialStock: 200, materialLeadDays: 5 },
-      { partNumber: 'B-200', shape: '丸物', price: 18000, materialCost: 3500, stock: 0, monthlyUsage: 45, materialStock: 20, materialLeadDays: 7 },
-      { partNumber: 'C-310', shape: '角物', price: 3500, materialCost: 700, stock: 400, monthlyUsage: 60, materialStock: 60, materialLeadDays: 3 },
-      { partNumber: 'D-410', shape: '丸物', price: 9000, materialCost: 1500, stock: 300, monthlyUsage: 30, materialStock: 0, materialLeadDays: 10 },
+      { partNumber: 'A-100', shape: '板金', price: 6000, materialCost: 1200, stock: 360, monthlyUsage: 270, materialStock: 600, materialLeadDays: 5 },
+      { partNumber: 'B-200', shape: '丸物', price: 18000, materialCost: 3500, stock: 0, monthlyUsage: 135, materialStock: 60, materialLeadDays: 7 },
+      { partNumber: 'C-310', shape: '角物', price: 3500, materialCost: 700, stock: 1200, monthlyUsage: 180, materialStock: 180, materialLeadDays: 3 },
+      { partNumber: 'D-410', shape: '丸物', price: 9000, materialCost: 1500, stock: 900, monthlyUsage: 90, materialStock: 0, materialLeadDays: 10 },
     ],
     routes: {
       'A-100': [
@@ -83,22 +83,22 @@ export function createSampleData(today: IsoDate): PlantData {
     ],
     attendance: [{ crew: '機械班', date: workday(2), people: 1 }],
     orders: [
-      { id: '1030', partNumber: 'B-200', quantity: 10, due: workday(5) },
-      { id: '1045', partNumber: 'B-200', quantity: 30, due: workday(8), materialOn: workday(1) },
-      { id: '1021', partNumber: 'A-100', quantity: 50, due: workday(7) },
-      { id: '1022', partNumber: 'A-100', quantity: 20, due: workday(9) },
-      { id: '1040', partNumber: 'A-100', quantity: 15, due: nextMonth(10), materialOn: workday(2) },
-      { id: '1034', partNumber: 'C-310', quantity: 30, due: nextMonth(5) },
-      { id: '1050', partNumber: 'D-410', quantity: 40, due: monthAfterNext(15) },
+      { id: '1030', partNumber: 'B-200', quantity: 30, due: workday(5) },
+      { id: '1045', partNumber: 'B-200', quantity: 90, due: workday(8), materialOn: workday(1) },
+      { id: '1021', partNumber: 'A-100', quantity: 150, due: workday(7) },
+      { id: '1022', partNumber: 'A-100', quantity: 60, due: workday(9) },
+      { id: '1040', partNumber: 'A-100', quantity: 45, due: nextMonth(10), materialOn: workday(2) },
+      { id: '1034', partNumber: 'C-310', quantity: 90, due: nextMonth(5) },
+      { id: '1050', partNumber: 'D-410', quantity: 120, due: monthAfterNext(15) },
     ],
     lots: [
-      { id: 'L1021-1', orderId: '1021', quantity: 20, stepIndex: 1, arrivedOn: day(-2) },
-      { id: 'L1021-2', orderId: '1021', quantity: 30, stepIndex: 2, arrivedOn: day(-1) },
-      { id: 'L1022-1', orderId: '1022', quantity: 20, stepIndex: 1, arrivedOn: day(-4) },
-      { id: 'L1030-1', orderId: '1030', quantity: 4, stepIndex: 4, arrivedOn: day(-1) },
-      { id: 'L1030-2', orderId: '1030', quantity: 6, stepIndex: 5, arrivedOn: day(-1) },
-      { id: 'L1034-1', orderId: '1034', quantity: 6, stepIndex: 1, arrivedOn: day(-2) },
-      { id: 'L1034-2', orderId: '1034', quantity: 12, stepIndex: 2, arrivedOn: day(0) },
+      { id: 'L1021-1', orderId: '1021', quantity: 60, stepIndex: 1, arrivedOn: day(-2) },
+      { id: 'L1021-2', orderId: '1021', quantity: 90, stepIndex: 2, arrivedOn: day(-1) },
+      { id: 'L1022-1', orderId: '1022', quantity: 60, stepIndex: 1, arrivedOn: day(-4) },
+      { id: 'L1030-1', orderId: '1030', quantity: 12, stepIndex: 4, arrivedOn: day(-1) },
+      { id: 'L1030-2', orderId: '1030', quantity: 18, stepIndex: 5, arrivedOn: day(-1) },
+      { id: 'L1034-1', orderId: '1034', quantity: 18, stepIndex: 1, arrivedOn: day(-2) },
+      { id: 'L1034-2', orderId: '1034', quantity: 36, stepIndex: 2, arrivedOn: day(0) },
     ],
   }
   return {
@@ -119,10 +119,10 @@ const DISTRIBUTORS = ['取引先D', '取引先E']
 export function sampleChannelStocks(today: IsoDate): ChannelStock[] {
   const asOf = addDays(today, -Number(today.slice(8, 10)))
   return [
-    { customer: '取引先D', partNumber: 'A-100', asOf, stock: 50, monthlySales: 30 },
-    { customer: '取引先E', partNumber: 'A-100', asOf, stock: 15, monthlySales: 15 },
-    { customer: '取引先E', partNumber: 'B-200', asOf, stock: 6, monthlySales: 20 },
-    { customer: '取引先D', partNumber: 'C-310', asOf, stock: 120, monthlySales: 25 },
+    { customer: '取引先D', partNumber: 'A-100', asOf, stock: 150, monthlySales: 90 },
+    { customer: '取引先E', partNumber: 'A-100', asOf, stock: 45, monthlySales: 45 },
+    { customer: '取引先E', partNumber: 'B-200', asOf, stock: 18, monthlySales: 60 },
+    { customer: '取引先D', partNumber: 'C-310', asOf, stock: 360, monthlySales: 75 },
   ]
 }
 
@@ -142,9 +142,9 @@ function workdayOnOrBefore(date: IsoDate): IsoDate {
 
 // The steps each lot has been through, made from the lots themselves so a saved sample
 // gets the same history: one step a working day, the last on the working day before the
-// lot reached where it is now. Each machine runs its lots in time order from 8:00, with a
-// setup from the setup table whenever the part number changes. A piece now and then failed
-// inspection on the way.
+// lot reached where it is now. Each machine runs its lots in time order from 0:00, as the
+// plant works three shifts, with a setup from the setup table whenever the part number
+// changes. A piece now and then failed inspection on the way.
 export function sampleActuals(
   data: Pick<PlantData, 'lots' | 'orders' | 'routes' | 'equipment' | 'parts' | 'setupRules'>,
 ): Actual[] {
@@ -188,9 +188,9 @@ export function sampleActuals(
     .map((run) => {
       const before = machines.get(run.machine.id)
       const setup = setupMinutes(data, run.machine, run.process, before?.partNumber ?? null, run.partNumber)
-      const start = Math.min((before?.date === run.date ? before.free : 8 * 60) + setup, 17 * 60)
+      const start = Math.min((before?.date === run.date ? before.free : 0) + setup, 24 * 60)
       const minutes = Math.ceil((run.pieces * run.minutesPerPiece) / (run.machine.speed ?? 1) - 1e-9)
-      const end = Math.min(start + minutes, 17 * 60)
+      const end = Math.min(start + minutes, 24 * 60)
       machines.set(run.machine.id, { date: run.date, free: end, partNumber: run.partNumber })
       return { run, actual: { lotId: run.lotId, stepIndex: run.stepIndex, equipmentId: run.machine.id, start: `${run.date}T${clock(start)}`, end: `${run.date}T${clock(end)}`, good: run.good, defect: run.defect } }
     })
@@ -210,7 +210,7 @@ export function sampleCustomerOrders(orders: Order[]): CustomerOrder[] {
       return DISTRIBUTORS.includes(name) ? { customer: name, channel: 'distributor' as const } : { customer: name }
     }
     const due = workdayOnOrBefore(order.due)
-    if (order.quantity < 30) {
+    if (order.quantity < 90) {
       return [{ id: `J${order.id}-1`, orderId: order.id, ...customer(0), quantity: order.quantity, requested: due, answered: due }]
     }
     const first = Math.floor(order.quantity / 2)

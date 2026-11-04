@@ -1,16 +1,28 @@
-import { Badge, Button, Group, Paper, SimpleGrid, Stack, Table, Text, Title } from '@mantine/core'
+import { Badge, Button, Group, Paper, SimpleGrid, Stack, Table, Text, Title, VisuallyHidden } from '@mantine/core'
 import { IconCheck, IconUser, IconUserFilled } from '@tabler/icons-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { dailyUsage, orderDemands, replenishments, type PriorityClass, type Replenishment } from '../engine/demand'
-import { monthlyOutlook } from '../engine/economics'
+import { addDays, daysBetween, MINUTES_PER_DAY, parseClock, weekday } from '../engine/dates'
+import {
+  dailyUsage,
+  lastDayOfNextMonth,
+  orderDemands,
+  replenishments,
+  type OrderDemand,
+  type PriorityClass,
+  type Replenishment,
+} from '../engine/demand'
+import { monthlyOutlook, type Shortage } from '../engine/economics'
+import { todayFocus } from '../engine/focus'
 import type { Plan, ReleaseTiming } from '../engine/plan'
 import { channelOutlook, materialCover, type ChannelOutlook, type MaterialCover } from '../engine/records'
 import { describeChange, type Change } from '../engine/scenario'
 import type { CrewDay } from '../engine/scheduler'
-import type { IsoDate } from '../engine/types'
+import type { IsoDate, Order, Part } from '../engine/types'
 import type { Decision } from '../state/store'
 import { formatYen, shortDate, shortDateTime, weekdayName } from './format'
+import { TodayFocus } from './TodayFocus'
+import { useCountUp } from './useCountUp'
 
 type Props = {
   plan: Plan
@@ -53,6 +65,8 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
     [toRelease, timingOf],
   )
   const channels = useMemo(() => channelOutlook(data, today), [data, today])
+  const focus = useMemo(() => todayFocus(plan, today, timingOf), [plan, today, timingOf])
+  const shownProfit = useCountUp(outlook.grossProfit)
   // The part just added keeps keyboard focus where its button was (WCAG 2.4.3).
   const [added, setAdded] = useState<string | null>(null)
   const addedRef = useRef<HTMLDivElement>(null)
@@ -101,43 +115,61 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
     return width + Math.max(48, people * PERSON_SIZE + 12)
   }, CREW_COLUMN_WIDTH)
   const premium = Math.round(
-    (settings.laborRate * (outlook.overtimeHours * settings.overtimePremium + outlook.holidayHours * settings.holidayPremium)),
+    settings.laborRate *
+      (outlook.overtimeHours * settings.overtimePremium +
+        outlook.holidayHours * settings.holidayPremium +
+        outlook.nightHours * settings.nightPremium),
   )
 
   return (
     <Stack gap="lg">
-      <Paper withBorder p="md">
-        <Group gap="lg" align="flex-end" wrap="wrap" className="equation">
-          <Figure label={`${outlook.month.replace('-', '年')}月の粗利`} value={formatYen(outlook.grossProfit)} strong />
-          <Text c="dimmed" aria-hidden="true">
-            ＝
+      <div className="outlook-hero">
+        <TodayFocus items={focus} today={today} />
+        <Paper withBorder p="lg" className="profit-card">
+          <Text size="sm" c="dimmed">
+            {outlook.month.replace('-', '年')}月の粗利
           </Text>
-          <Figure label="売上" value={formatYen(outlook.revenue)} />
-          <Text c="dimmed" aria-hidden="true">
-            −
+          <Text className="profit-value tabular" aria-hidden="true">
+            {formatYen(shownProfit)}
           </Text>
-          <Figure label="材料費" value={formatYen(outlook.materialCost)} />
-          <Text c="dimmed" aria-hidden="true">
-            −
+          <VisuallyHidden>{formatYen(outlook.grossProfit)}</VisuallyHidden>
+          <Text size="sm" c="dimmed" className="tabular phrase">
+            売上 {formatYen(outlook.revenue)} − 材料費 {formatYen(outlook.materialCost)} − 労務費{' '}
+            {formatYen(outlook.laborCost)}
+            {premium > 0 ? `（うち割増 ${formatYen(premium)}）` : ''} − 設備の運転費 {formatYen(outlook.machineCost)}
           </Text>
-          <Figure
-            label="労務費"
-            value={formatYen(outlook.laborCost)}
-            note={premium > 0 ? `うち割増 ${formatYen(premium)}` : undefined}
-          />
-          <Text c="dimmed" aria-hidden="true">
-            −
-          </Text>
-          <Figure label="設備の運転費" value={formatYen(outlook.machineCost)} />
-        </Group>
-      </Paper>
+          <SimpleGrid cols={2} spacing="sm" mt="sm">
+            <Metric
+              label="納期に遅れる注番"
+              value={outlook.lateOrders.length}
+              unit="件"
+              tone={outlook.lateOrders.length > 0 ? 'red' : undefined}
+            />
+            <Metric
+              label="来月末までに欠品する型番"
+              value={new Set(outlook.shortages.map((shortage) => shortage.partNumber)).size}
+              unit="品目"
+              tone={outlook.shortages.length > 0 ? 'red' : undefined}
+            />
+            {settings.shifts === 1 ? (
+              <Metric label="残業" value={outlook.overtimeHours} unit="時間" />
+            ) : (
+              <Metric label="深夜" value={outlook.nightHours} unit="時間" />
+            )}
+            <Metric label="休日出勤" value={outlook.holidayHours} unit="時間" />
+          </SimpleGrid>
+        </Paper>
+      </div>
 
-      <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
-        <Metric label="納期に遅れる注番" value={`${outlook.lateOrders.length}件`} tone={outlook.lateOrders.length > 0 ? 'red' : 'teal'} />
-        <Metric label="来月末までに欠品する型番" value={`${new Set(outlook.shortages.map((shortage) => shortage.partNumber)).size}品目`} tone={outlook.shortages.length > 0 ? 'red' : 'teal'} />
-        <Metric label="残業" value={`${outlook.overtimeHours}時間`} />
-        <Metric label="休日出勤" value={`${outlook.holidayHours}時間`} />
-      </SimpleGrid>
+      <FlowTimeline
+        plan={plan}
+        today={today}
+        rows={rows}
+        orders={orders}
+        parts={data.parts}
+        shortages={outlook.shortages}
+        timings={timings}
+      />
 
       <section>
         <Title order={2} size="h4" mb="sm">
@@ -489,33 +521,208 @@ function People({ day }: { day: CrewDay }) {
   )
 }
 
-function Figure({ label, value, note, strong }: { label: string; value: string; note?: string; strong?: boolean }) {
+function Metric({ label, value, unit, tone }: { label: string; value: number; unit: string; tone?: 'red' }) {
   return (
-    <Stack gap={0}>
-      <Text size="xs" c="dimmed">
-        {label}
-      </Text>
-      <Text fz={strong ? 26 : 18} fw={700} className="tabular" style={{ whiteSpace: 'nowrap' }}>
-        {value}
-      </Text>
-      {note && (
-        <Text size="xs" c="dimmed" className="tabular">
-          {note}
-        </Text>
-      )}
-    </Stack>
-  )
-}
-
-function Metric({ label, value, tone }: { label: string; value: string; tone?: 'red' | 'teal' }) {
-  return (
-    <Paper withBorder p="sm">
+    <div className="metric">
       <Text size="xs" c="dimmed" className="phrase">
         {label}
       </Text>
-      <Text fz={22} fw={700} c={tone} className="tabular" style={{ whiteSpace: 'nowrap' }}>
+      <Text c={tone} className="metric-value tabular">
         {value}
+        <Text span size="sm" c="dimmed" ml={4}>
+          {unit}
+        </Text>
       </Text>
-    </Paper>
+    </div>
+  )
+}
+
+// Where each order stands from today to the end of next month: a bar to its forecast
+// finish, its due date as a line, and above them the days a part's stock runs short,
+// with when its material comes. The bars are drawn for the eye; each lane says the same
+// in words for a screen reader.
+function FlowTimeline({
+  plan,
+  today,
+  rows,
+  orders,
+  parts,
+  shortages,
+  timings,
+}: {
+  plan: Plan
+  today: IsoDate
+  rows: OrderDemand[]
+  orders: Map<string, Order>
+  parts: Part[]
+  shortages: Shortage[]
+  timings: Map<string, ReleaseTiming>
+}) {
+  const start = addDays(today, -1)
+  const end = lastDayOfNextMonth(today)
+  const total = daysBetween(start, end) + 1
+  const at = (dateTime: string) => {
+    const minutes = dateTime.length > 10 ? parseClock(dateTime.slice(11, 16)) : 0
+    const days = daysBetween(start, dateTime.slice(0, 10)) + minutes / MINUTES_PER_DAY
+    return Math.min(100, Math.max(0, (days / total) * 100))
+  }
+  const pct = (value: number) => `${value}%`
+  const now = at(today)
+  // Mondays, leaving out one too close to the 今日 label.
+  const mondays = Array.from({ length: total }, (_, index) => addDays(start, index)).filter(
+    (date) => weekday(date) === 1 && Math.abs(daysBetween(today, date)) > 2,
+  )
+  const forecasts = new Map(plan.result.orders.map((forecast) => [forecast.orderId, forecast]))
+  const shortParts = [...new Set(shortages.map((shortage) => shortage.partNumber))]
+
+  return (
+    <section>
+      <Title order={2} size="h4" mb="sm">
+        これからの流れ
+      </Title>
+      <Paper withBorder p="md">
+        <div className="flow-scroll" tabIndex={0} role="region" aria-label="これからの流れ（横に送れます）">
+          <div className="flow-grid">
+            <div className="flow-row" aria-hidden="true">
+              <span className="flow-label" />
+              <div className="flow-ticks">
+                {mondays.map((date) => (
+                  <span key={date} className="flow-tick tabular" style={{ left: pct(at(date)) }}>
+                    {shortDate(date)}
+                  </span>
+                ))}
+                <span className="flow-tick is-today" style={{ left: pct(now) }}>
+                  今日
+                </span>
+              </div>
+            </div>
+            <ol className="flow-lanes" aria-label="これからの流れ">
+              {shortParts.map((partNumber, laneIndex) => {
+                const part = parts.find((candidate) => candidate.partNumber === partNumber)
+                const runs = shortages.filter((shortage) => shortage.partNumber === partNumber)
+                const timing = timings.get(partNumber)
+                const material = timing?.materialArrives
+                  ? `材料は今日発注して${shortDate(timing.materialArrives)}着`
+                  : timing?.materialOrderBy
+                    ? `材料の発注は${shortDate(timing.materialOrderBy)}まで`
+                    : ''
+                return (
+                  <li key={partNumber} className="flow-row">
+                    <div className="flow-label">
+                      <div>
+                        <Text size="sm" fw={700}>
+                          {partNumber}の在庫
+                        </Text>
+                        <Text size="xs" c="dimmed" className="tabular">
+                          在庫{part?.stock ?? 0}個　1日{part ? Math.round(dailyUsage(part) * 10) / 10 : 0}個
+                        </Text>
+                      </div>
+                    </div>
+                    <div className="flow-track is-stock" aria-hidden="true">
+                      <span className="flow-today" style={{ left: pct(now) }} />
+                      {runs.map((run) => (
+                        <span
+                          key={run.from}
+                          className="flow-short"
+                          style={{
+                            left: pct(at(run.from)),
+                            width: pct((run.until ? at(run.until) : 100) - at(run.from)),
+                            animationDelay: `${400 + laneIndex * 100}ms`,
+                          }}
+                        >
+                          <span className="flow-short-label tabular">最大{run.maxShortage}個</span>
+                        </span>
+                      ))}
+                      {timing?.materialArrives && (
+                        <span className="flow-mark" style={{ left: pct(at(timing.materialArrives)) }}>
+                          <span className="flow-mark-label tabular">材料{shortDate(timing.materialArrives)}着</span>
+                        </span>
+                      )}
+                      {timing?.materialOrderBy && !timing.materialLate && (
+                        <span className="flow-mark" style={{ left: pct(at(timing.materialOrderBy)) }}>
+                          <span className="flow-mark-label tabular">発注{shortDate(timing.materialOrderBy)}まで</span>
+                        </span>
+                      )}
+                    </div>
+                    <VisuallyHidden>
+                      {runs
+                        .map(
+                          (run) =>
+                            `${shortDate(run.from)}から${run.until ? `${shortDate(run.until)}まで` : ''}最大${run.maxShortage}個欠品`,
+                        )
+                        .join('、')}
+                      {material ? `、${material}` : ''}
+                    </VisuallyHidden>
+                  </li>
+                )
+              })}
+              {rows.map((demand, index) => {
+                const forecast = forecasts.get(demand.orderId)
+                const order = orders.get(demand.orderId)
+                const finishAt = forecast?.finishAt ?? null
+                const due = order?.due ?? demand.needBy
+                const beyond = due > end
+                const finish = finishAt ? at(finishAt) : now
+                const late = forecast?.late ?? false
+                const delay = `${300 + index * 90}ms`
+                return (
+                  <li key={demand.orderId} className="flow-row">
+                    <div className="flow-label">
+                      <ClassBadge value={demand.priorityClass} />
+                      <div>
+                        <Text size="sm" fw={700} className="flow-name tabular">
+                          <VisuallyHidden>注番</VisuallyHidden>
+                          {demand.orderId}
+                          <VisuallyHidden>、</VisuallyHidden>
+                          <Text span size="xs" c="dimmed" fw={400} className="flow-part">
+                            {demand.partNumber}・{order?.quantity}個
+                          </Text>
+                        </Text>
+                        <Text size="xs" c="dimmed" className="tabular">
+                          納期{shortDate(due)}
+                        </Text>
+                      </div>
+                    </div>
+                    <div className="flow-track" aria-hidden="true">
+                      <span className="flow-today" style={{ left: pct(now) }} />
+                      <span className={`flow-due${beyond ? ' is-beyond' : ''}`} style={{ left: pct(beyond ? 100 : at(due)) }} />
+                      {forecast?.status === 'done' ? (
+                        <span className="flow-note" style={{ left: pct(now) }}>
+                          完了
+                        </span>
+                      ) : finishAt ? (
+                        <>
+                          <span
+                            className={`flow-bar${late ? ' is-late' : ''}`}
+                            style={{ left: pct(now), width: pct(Math.max(finish - now, 0)), animationDelay: delay }}
+                          />
+                          <span
+                            className={`flow-finish tabular${late ? ' is-late' : ''}${finish > 85 ? ' is-left' : ''}`}
+                            style={{ left: pct(finish), animationDelay: delay }}
+                          >
+                            {shortDate(finishAt.slice(0, 10))}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="flow-note" style={{ left: pct(now) }}>
+                          計画に入らない
+                        </span>
+                      )}
+                    </div>
+                    <VisuallyHidden>
+                      {forecast?.status === 'done'
+                        ? '完了'
+                        : finishAt
+                          ? `完成見込み${shortDateTime(finishAt)}${late && forecast?.lateDays ? `、${forecast.lateDays}日遅れ` : ''}`
+                          : '計画に入らない'}
+                    </VisuallyHidden>
+                  </li>
+                )
+              })}
+            </ol>
+          </div>
+        </div>
+      </Paper>
+    </section>
   )
 }

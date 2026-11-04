@@ -9,6 +9,7 @@ import {
   List,
   Modal,
   Paper,
+  SegmentedControl,
   Select,
   Slider,
   Stack,
@@ -22,6 +23,7 @@ import { useDisclosure } from '@mantine/hooks'
 import { IconDownload, IconRefresh, IconUpload } from '@tabler/icons-react'
 import { useState } from 'react'
 
+import { SHIFT_STARTS } from '../engine/settings'
 import type { Crew, IsoDate, Settings } from '../engine/types'
 import type { AppState } from '../state/store'
 import { shortDate, weekdayName, workingDays } from './format'
@@ -169,23 +171,52 @@ export function SettingsView({ app }: { app: AppState }) {
           稼働と計画
         </Title>
         <Paper withBorder p="lg">
-          <Grid gap="lg">
-            <Grid.Col span={{ base: 6, lg: 3 }}>
-              <TextInput
-                type="time"
-                label="始業"
-                value={settings.workStart}
-                onChange={(event) => set('workStart', event.currentTarget.value)}
-              />
+          {/* Fields line up by their inputs, so a label that wraps on a narrow screen does not push its input down. */}
+          <Grid gap="lg" align="flex-end">
+            <Grid.Col span={{ base: 12, lg: 6 }}>
+              <Input.Wrapper label="勤務" labelElement="div" labelProps={{ id: 'shifts-label' }}>
+                <SegmentedControl
+                  mt={4}
+                  fullWidth
+                  color="primary"
+                  value={String(settings.shifts)}
+                  onChange={(value) => set('shifts', Number(value) as Settings['shifts'])}
+                  data={[
+                    { value: '1', label: '日勤' },
+                    { value: '3', label: '3交代' },
+                  ]}
+                  aria-labelledby="shifts-label"
+                />
+              </Input.Wrapper>
             </Grid.Col>
-            <Grid.Col span={{ base: 6, lg: 3 }}>
-              <TextInput
-                type="time"
-                label="終業"
-                value={settings.workEnd}
-                onChange={(event) => set('workEnd', event.currentTarget.value)}
-              />
-            </Grid.Col>
+            {settings.shifts === 1 ? (
+              <>
+                <Grid.Col span={{ base: 6, lg: 3 }}>
+                  <TextInput
+                    type="time"
+                    label="始業"
+                    value={settings.workStart}
+                    onChange={(event) => set('workStart', event.currentTarget.value)}
+                  />
+                </Grid.Col>
+                <Grid.Col span={{ base: 6, lg: 3 }}>
+                  <TextInput
+                    type="time"
+                    label="終業"
+                    value={settings.workEnd}
+                    onChange={(event) => set('workEnd', event.currentTarget.value)}
+                  />
+                </Grid.Col>
+              </>
+            ) : (
+              <Grid.Col span={{ base: 12, lg: 6 }}>
+                <Input.Wrapper label="交代の時刻" labelElement="div">
+                  <Text h={36} display="flex" style={{ alignItems: 'center' }} className="tabular">
+                    {SHIFT_STARTS[settings.shifts].map((start) => start.replace(/^0/, '')).join('　')}
+                  </Text>
+                </Input.Wrapper>
+              </Grid.Col>
+            )}
             <Grid.Col span={{ base: 12, lg: 6 }}>
               <Input.Wrapper label="稼働する曜日" labelProps={{ id: 'workdays-label' }}>
                 <Group gap={6} mt={4} role="group" aria-labelledby="workdays-label">
@@ -232,7 +263,7 @@ export function SettingsView({ app }: { app: AppState }) {
             </Grid.Col>
             <Grid.Col span={{ base: 6, lg: 3 }}>
               <NumberField
-                label="止まっているLotの警告"
+                label={<span className="phrase">止まっているLotの警告</span>}
                 suffix=" 日以上"
                 min={1}
                 max={60}
@@ -251,16 +282,18 @@ export function SettingsView({ app }: { app: AppState }) {
                 onCommit={(value) => set('laborRate', clamp(value, 0, 100000))}
               />
             </Grid.Col>
-            <Grid.Col span={{ base: 6, lg: 3 }}>
-              <NumberField
-                label="残業の割増"
-                suffix=" %"
-                min={0}
-                max={100}
-                value={Math.round(settings.overtimePremium * 100)}
-                onCommit={(value) => set('overtimePremium', clamp(value, 0, 100) / 100)}
-              />
-            </Grid.Col>
+            {settings.shifts === 1 && (
+              <Grid.Col span={{ base: 6, lg: 3 }}>
+                <NumberField
+                  label="残業の割増"
+                  suffix=" %"
+                  min={0}
+                  max={100}
+                  value={Math.round(settings.overtimePremium * 100)}
+                  onCommit={(value) => set('overtimePremium', clamp(value, 0, 100) / 100)}
+                />
+              </Grid.Col>
+            )}
             <Grid.Col span={{ base: 6, lg: 3 }}>
               <NumberField
                 label="休日出勤の割増"
@@ -269,6 +302,16 @@ export function SettingsView({ app }: { app: AppState }) {
                 max={100}
                 value={Math.round(settings.holidayPremium * 100)}
                 onCommit={(value) => set('holidayPremium', clamp(value, 0, 100) / 100)}
+              />
+            </Grid.Col>
+            <Grid.Col span={{ base: 6, lg: 3 }}>
+              <NumberField
+                label="深夜の割増"
+                suffix=" %"
+                min={0}
+                max={100}
+                value={Math.round(settings.nightPremium * 100)}
+                onCommit={(value) => set('nightPremium', clamp(value, 0, 100) / 100)}
               />
             </Grid.Col>
           </Grid>
@@ -442,7 +485,7 @@ export function SettingsView({ app }: { app: AppState }) {
                   <Table.Tr>
                     <Table.Th className="sticky-col">班</Table.Th>
                     <Table.Th>担当工程</Table.Th>
-                    <Table.Th w={96}>いつも</Table.Th>
+                    <Table.Th w={96}>{settings.shifts === 1 ? 'いつも' : '1直'}</Table.Th>
                     {days.map((date) => (
                       <Table.Th key={date} w={60} ta="center" className="tabular">
                         {shortDate(date)}
@@ -468,7 +511,7 @@ export function SettingsView({ app }: { app: AppState }) {
                           max={99}
                           value={crew.people}
                           onCommit={(value) => setCrewPeople(crew.name, value)}
-                          aria-label={`${crew.name}のいつもの人数`}
+                          aria-label={settings.shifts === 1 ? `${crew.name}のいつもの人数` : `${crew.name}の1直の人数`}
                         />
                       </Table.Td>
                       {days.map((date) => {

@@ -169,7 +169,7 @@ function App() {
               aria-controls="app-menu"
             />
             <Group gap={8} wrap="nowrap">
-              <img src="/favicon.svg" alt="" width={26} height={26} />
+              <img className="app-logo" src="/favicon.svg" alt="" width={26} height={26} />
               <Text component="h1" fw={700} size="lg" style={{ whiteSpace: 'nowrap' }}>
                 サキヨミ
               </Text>
@@ -179,7 +179,12 @@ function App() {
                 </Badge>
               )}
             </Group>
-            <Tabs value={tab} onChange={(value) => value && selectTab(value as Tab)} variant="pills" visibleFrom="md">
+            <Tabs
+              value={tab}
+              onChange={(value) => value && selectTab(value as Tab)}
+              variant="pills"
+              visibleFrom="md"
+            >
               <Tabs.List>
                 {TABS.map((item) => (
                   <Tabs.Tab key={item.value} value={item.value} leftSection={item.icon} rightSection={count(item.value)}>

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNod
 import { ChatError, converse } from '../assistant/chatClient'
 import { TOOL_NAMES } from '../assistant/toolSchemas'
 import { changesToApply, type ProposedOption, type ReportedEvent } from '../assistant/tools'
+import { addDays, weekday } from '../engine/dates'
 import type { PlanState } from '../engine/plan'
 import { describeChange, parseChange } from '../engine/scenario'
 import type { PlantData } from '../engine/types'
@@ -28,12 +29,22 @@ type Props = {
   onAdopt: (decision: Omit<Decision, 'id' | 'at'>) => string | null
 }
 
-const SAMPLE_PROMPTS = [
-  '注番1045の材料が2日遅れると連絡がありました',
-  '注番1022を30個に増やせますか？',
-  '溶接ロボ1が明日1日止まります',
-  '今いちばん危ない注番はどれ？',
-]
+const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土']
+
+// The machine stops on the next working day, so the example moves the plan whichever day
+// the app is opened: tomorrow, or on Friday and Saturday the coming Monday.
+function samplePrompts({ today, settings }: PlanState): string[] {
+  const tomorrow = addDays(today, 1)
+  let stopOn = tomorrow
+  for (let step = 0; step < 7 && !settings.workWeekdays.includes(weekday(stopOn)); step += 1) stopOn = addDays(stopOn, 1)
+  const when = stopOn === tomorrow ? '明日' : `${WEEKDAY_NAMES[weekday(stopOn)]}曜に`
+  return [
+    '注番1045の材料が2日遅れると連絡がありました',
+    '注番1022を90個に増やせますか？',
+    `マシニング1が${when}1日止まります`,
+    '今いちばん危ない注番はどれ？',
+  ]
+}
 const GENERAL_PROMPTS = ['今いちばん危ない注番はどれ？', '来週いちばん混む設備はどれ？']
 
 // Marks text the app adds to the planner's next message after a button press.
@@ -175,7 +186,7 @@ export function ChatPanel({ planState, sampleData, decisions, previewing, onPrev
             <Mascot state={mascotState} size={96} />
             <div className="speech speech-center">何がありましたか？</div>
             <Stack gap={6} w="100%">
-              {(sampleData ? SAMPLE_PROMPTS : GENERAL_PROMPTS).map((prompt) => (
+              {(sampleData ? samplePrompts(planState) : GENERAL_PROMPTS).map((prompt) => (
                 <Button
                   key={prompt}
                   variant="default"

@@ -70,9 +70,9 @@ describe('orderDemands', () => {
 
 describe('replenishments', () => {
   it('finds what stock and every open order leave short through the end of next month', () => {
-    // B-200 ships 1.5 a day: 59 days to 12/31 need 88.5, while stock and orders give 34.
+    // B-200 ships 4.5 a day: 59 days to 12/31 need 265.5, while stock and orders give 102.
     expect(replenishments(createSampleData(today), today)).toEqual([
-      { partNumber: 'B-200', quantity: 55, needBy: '2026-11-25' },
+      { partNumber: 'B-200', quantity: 164, needBy: '2026-11-25' },
     ])
   })
 
@@ -85,7 +85,7 @@ describe('replenishments', () => {
 
   it('is gone once an order for the shortfall is added', () => {
     const data = createSampleData(today)
-    data.orders.push({ id: '追加1', partNumber: 'B-200', quantity: 55, due: '2026-11-25' })
+    data.orders.push({ id: '追加1', partNumber: 'B-200', quantity: 164, due: '2026-11-25' })
 
     expect(replenishments(data, today)).toEqual([])
   })

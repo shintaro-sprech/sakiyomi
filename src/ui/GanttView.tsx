@@ -1,10 +1,11 @@
 import {
+  ActionIcon,
   Anchor,
   Button,
   CloseButton,
   Group,
+  Menu,
   Paper,
-  SegmentedControl,
   Select,
   Stack,
   Table,
@@ -13,13 +14,14 @@ import {
   Tooltip,
   VisuallyHidden,
 } from '@mantine/core'
-import { useReducedMotion } from '@mantine/hooks'
-import { IconHistory } from '@tabler/icons-react'
+import { useElementSize, useReducedMotion } from '@mantine/hooks'
+import { IconCheck, IconChevronDown, IconHistory, IconMinus, IconPlus } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type { ProposedOption } from '../assistant/tools'
 import { addDays, daysBetween, MINUTES_PER_DAY, parseClock, weekday } from '../engine/dates'
 import type { Plan } from '../engine/plan'
+import { SHIFT_STARTS, workHours } from '../engine/settings'
 import { lotHistory } from '../engine/records'
 import type { ScheduledOperation } from '../engine/scheduler'
 import type { Equipment, IsoDate } from '../engine/types'
@@ -39,18 +41,28 @@ type Selection =
   | { kind: 'operation'; lotId: string; stepIndex: number; orderId: string }
   | { kind: 'equipment'; id: string }
 
-const ZOOMS = [
-  { label: '小', dayWidth: 90 },
-  { label: '中', dayWidth: 150 },
-  { label: '大', dayWidth: 260 },
+// How many days the chart fits across its width, from the closest look to the widest.
+const SPANS = [
+  { label: '1日', days: 1 },
+  { label: '3日', days: 3 },
+  { label: '1週間', days: 7 },
+  { label: '2週間', days: 14 },
 ]
+// The equipment column and the track's left margin, which the days share the rest beside.
+const LABEL_WIDTH = 196
+// Narrower than this, a day's date and bars no longer read; the chart scrolls instead.
+const MIN_DAY_WIDTH = 48
 const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土']
 const NOW_TAG_WIDTH = 64
+// The narrowest day whose date fits with its weekday, as 11/14（土）; narrower days show
+// the date only, and days off stand apart by their shade.
+const WEEKDAY_FITS = 76
 const TONE_NAMES = { late: '、納期に遅れる', tight: '、納期まで1日以内', ok: '' }
 const NO_FOCUS = 'none'
 
 export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
-  const [zoom, setZoom] = useState(1)
+  const [span, setSpan] = useState(2)
+  const { ref: chartRef, width: chartWidth } = useElementSize()
   const [focusOrder, setFocusOrder] = useState('')
   const [selection, setSelection] = useState<Selection | null>(null)
   // Set when the planner opens a panel and cleared once focus has moved to it, so a
@@ -65,8 +77,15 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
   const focused = useCallback(() => setFocusPending(false), [])
   const { scenario, result } = plan
   const { settings, data } = scenario
-  const dayWidth = ZOOMS[zoom].dayWidth
   const days = settings.horizonDays
+  // Until the chart has been measured, a day takes the width it used to have.
+  const dayWidth =
+    chartWidth > 0
+      ? Math.max(MIN_DAY_WIDTH, Math.floor((chartWidth - LABEL_WIDTH) / Math.min(SPANS[span].days, days)))
+      : 150
+  // The most days that fit side by side; a span wider than the one reaching it shows no more.
+  const daysThatFit = Math.min(chartWidth > 0 ? Math.floor((chartWidth - LABEL_WIDTH) / MIN_DAY_WIDTH) : days, days)
+  const showsMore = (index: number) => index === 0 || SPANS[index - 1].days < daysThatFit
 
   // Closing a panel returns focus to what opened it.
   const opener = useRef<HTMLElement | null>(null)
@@ -96,12 +115,37 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
         document.querySelector<HTMLElement>(`.gantt-equipment[data-eq="${CSS.escape(operation.equipmentId)}"]`),
     )
 
-  // Each day shows working hours only, widened to fit any overtime.
-  const displayStart = parseClock(settings.workStart)
-  const displayEnd = Math.max(
-    parseClock(settings.workEnd) + Math.max(0, ...scenario.overtime.map((entry) => entry.minutesPerDay)),
-    displayStart + 60,
+  // Each day shows working hours only, widened to fit any overtime up to midnight, where the
+  // working day ends as the calendar does.
+  const hoursOfDay = workHours(settings)
+  const displayStart = parseClock(hoursOfDay.start)
+  const displayEnd = Math.min(
+    Math.max(
+      parseClock(hoursOfDay.end) + Math.max(0, ...scenario.overtime.map((entry) => entry.minutesPerDay)),
+      displayStart + 60,
+    ),
+    MINUTES_PER_DAY,
   )
+  // A tick under each date for every hour shown, numbered every hour or every few hours, so
+  // numbers stay 24px apart as the day narrows or overtime widens it; at the narrowest only
+  // the day's first hour is. A day ends where the next begins, so at that line the closing
+  // hour stands to its left and the opening hour to its right, the closing one only where
+  // the day is wide enough to fit it.
+  const perHour = (dayWidth * 60) / (displayEnd - displayStart)
+  const labelEvery = [1, 2, 3, 4, 6, 12].find((step) => perHour * step >= 24) ?? 24
+  const firstHour = Math.ceil(displayStart / 60)
+  // Ticks stand at every hour while they are 4px apart or more, otherwise at the numbered hours only.
+  const hours = Array.from({ length: Math.max(0, Math.ceil(displayEnd / 60) - firstHour) }, (_, index) => firstHour + index).filter(
+    (hour) => perHour >= 4 || (hour - firstHour) % labelEvery === 0,
+  )
+  const endHour = displayEnd % 60 === 0 ? displayEnd / 60 : null
+  const lastLabeled = hours.filter((hour) => (hour - firstHour) % labelEvery === 0).at(-1) ?? firstHour
+  // A day that runs round the clock ends where the next begins at 0, so it shows only 0.
+  const showEnd = endHour !== null && displayEnd - displayStart < MINUTES_PER_DAY && perHour * (endHour - lastLabeled) >= 30
+  // Where one shift hands over to the next, inside the day; the day's own edge is drawn already.
+  const shiftLines = SHIFT_STARTS[settings.shifts]
+    .map(parseClock)
+    .filter((minute) => minute > displayStart && minute < displayEnd)
   const x = (minute: number) => {
     const day = Math.floor(minute / MINUTES_PER_DAY)
     const within = Math.min(Math.max(minute - day * MINUTES_PER_DAY - displayStart, 0), displayEnd - displayStart)
@@ -157,9 +201,10 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
   const pad = (value: number) => String(value).padStart(2, '0')
   const onFirstDay = `${clock.getFullYear()}-${pad(clock.getMonth() + 1)}-${pad(clock.getDate())}` === today
   const now = clock.getHours() * 60 + clock.getMinutes()
+  // Outside working hours the line sits at the day's start or end, beside its hour.
   const nowLabel = `${pad(clock.getHours())}:${pad(clock.getMinutes())}`
   // The tag stays inside the first day's column, clear of the fixed equipment column.
-  const tagLeft = Math.min(Math.max(x(now) - NOW_TAG_WIDTH / 2, 0), dayWidth - NOW_TAG_WIDTH)
+  const tagLeft = Math.min(Math.max(x(now) - NOW_TAG_WIDTH / 2, 0), Math.max(0, dayWidth - NOW_TAG_WIDTH))
 
   const tone = (operation: ScheduledOperation) => {
     const forecast = forecasts.get(operation.orderId)
@@ -181,12 +226,46 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
   return (
     <Stack gap="md">
       <Group gap="md" wrap="wrap" align="flex-end">
-        <SegmentedControl
-          value={String(zoom)}
-          onChange={(value) => setZoom(Number(value))}
-          data={ZOOMS.map((item, index) => ({ value: String(index), label: item.label }))}
-          aria-label="表示の幅"
-        />
+        <Group gap={0} wrap="nowrap" role="group" aria-label="表示の幅" className="span-control">
+          <ActionIcon
+            variant="default"
+            size={36}
+            onClick={() => setSpan((current) => Math.min(SPANS.length - 1, current + 1))}
+            disabled={span === SPANS.length - 1 || !showsMore(span + 1)}
+            aria-label="縮小（もっと先まで見る）"
+          >
+            <IconMinus size={16} />
+          </ActionIcon>
+          <Menu position="bottom" width={160}>
+            <Menu.Target>
+              <Button variant="default" h={36} rightSection={<IconChevronDown size={14} />} aria-label={`表示する日数：${SPANS[span].label}`}>
+                {SPANS[span].label}
+              </Button>
+            </Menu.Target>
+            <Menu.Dropdown>
+              {SPANS.map((item, index) => (
+                <Menu.Item
+                  key={item.label}
+                  onClick={() => setSpan(index)}
+                  disabled={index !== span && !showsMore(index)}
+                  rightSection={index === span ? <IconCheck size={14} /> : undefined}
+                  aria-current={index === span ? 'true' : undefined}
+                >
+                  {item.label}
+                </Menu.Item>
+              ))}
+            </Menu.Dropdown>
+          </Menu>
+          <ActionIcon
+            variant="default"
+            size={36}
+            onClick={() => setSpan((current) => Math.max(0, current - 1))}
+            disabled={span === 0}
+            aria-label="拡大（細かく見る）"
+          >
+            <IconPlus size={16} />
+          </ActionIcon>
+        </Group>
         <Select
           label="強調する注番"
           value={focusOrder || NO_FOCUS}
@@ -208,8 +287,18 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
         </Group>
       </Group>
 
-      <Paper withBorder className="gantt-scroll">
+      <Paper withBorder className="gantt-scroll" ref={chartRef}>
         <div className="gantt-grid" style={{ width: 188 + days * dayWidth }}>
+          {dates.flatMap((date, index) =>
+            shiftLines.map((minute) => (
+              <div
+                key={`${date}-${minute}`}
+                className="gantt-shift"
+                style={{ left: 188 + x(index * MINUTES_PER_DAY + minute) }}
+                aria-hidden="true"
+              />
+            )),
+          )}
           {onFirstDay && <div className="gantt-now" style={{ left: 188 + x(now) }} aria-hidden="true" />}
           <div className="gantt-row gantt-head">
             <div className="gantt-label">設備</div>
@@ -225,9 +314,30 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
                   className={`gantt-day${isOff(settings.workWeekdays, date) ? ' is-off' : ''}`}
                   style={{ left: index * dayWidth, width: dayWidth }}
                 >
-                  {shortDate(date)}（{WEEKDAY_NAMES[weekday(date)]}）
+                  {shortDate(date)}
+                  {dayWidth >= WEEKDAY_FITS && `（${WEEKDAY_NAMES[weekday(date)]}）`}
                 </div>
               ))}
+              <div className="gantt-hours" aria-hidden="true">
+                {dates.flatMap((date, index) =>
+                  hours.map((hour) => {
+                    const left = x(index * MINUTES_PER_DAY + hour * 60)
+                    const labeled = (hour - firstHour) % labelEvery === 0 && (showEnd || (index + 1) * dayWidth - left >= 18)
+                    const opening = hour * 60 === displayStart
+                    return (
+                      <span key={`${date}-${hour}`} className="gantt-hour" style={{ left }}>
+                        {labeled && <span className={`gantt-hour-label${opening ? ' is-start' : ''}`}>{hour}</span>}
+                      </span>
+                    )
+                  }).concat(
+                    showEnd ? (
+                      <span key={`${date}-end`} className="gantt-hour-label is-end" style={{ left: (index + 1) * dayWidth }}>
+                        {endHour}
+                      </span>
+                    ) : [],
+                  ),
+                )}
+              </div>
             </div>
           </div>
 

@@ -37,6 +37,8 @@ export type MonthlyOutlook = {
   regularHours: number
   overtimeHours: number
   holidayHours: number
+  // Hours of any kind worked between 22:00 and 05:00, which carry the night premium too.
+  nightHours: number
   setupHours: number
   lateOrders: LateOrder[]
   shortages: Shortage[]
@@ -67,6 +69,7 @@ export function monthlyOutlook(plan: Plan, today: IsoDate): MonthlyOutlook {
   let regular = 0
   let overtime = 0
   let holiday = 0
+  let night = 0
   let machineCost = 0
   let setup = 0
   for (const operation of result.operations) {
@@ -76,13 +79,17 @@ export function monthlyOutlook(plan: Plan, today: IsoDate): MonthlyOutlook {
     regular += split.regular
     overtime += split.overtime
     holiday += split.holiday
+    night += split.night
     const worked = split.regular + split.overtime + split.holiday
     machineCost += (worked / 60) * (equipment.get(operation.equipmentId)?.hourlyCost ?? 0)
     setup += operation.setupMinutes
   }
   const laborCost =
     (settings.laborRate / 60) *
-    (regular + overtime * (1 + settings.overtimePremium) + holiday * (1 + settings.holidayPremium))
+    (regular +
+      overtime * (1 + settings.overtimePremium) +
+      holiday * (1 + settings.holidayPremium) +
+      night * settings.nightPremium)
 
   const classCounts: Record<PriorityClass, number> = { A: 0, B: 0, C: 0 }
   for (const demand of orderDemands(data, today)) classCounts[demand.priorityClass] += 1
@@ -99,6 +106,7 @@ export function monthlyOutlook(plan: Plan, today: IsoDate): MonthlyOutlook {
     regularHours: round1(regular / 60),
     overtimeHours: round1(overtime / 60),
     holidayHours: round1(holiday / 60),
+    nightHours: round1(night / 60),
     setupHours: round1(setup / 60),
     lateOrders: result.orders
       .filter((forecast) => forecast.late)

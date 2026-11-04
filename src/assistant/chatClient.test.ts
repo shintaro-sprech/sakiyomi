@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createSampleData } from '../../sample-data/sample'
 import type { PlanState } from '../engine/plan'
-import { createDefaultSettings } from '../engine/settings'
+import { createSampleSettings } from '../engine/settings'
 import { ChatError, converse } from './chatClient'
 
 const today = '2026-11-03'
-const state: PlanState = { data: createSampleData(today), settings: createDefaultSettings(), adopted: [], today }
+const state: PlanState = { data: createSampleData(today), settings: createSampleSettings(), adopted: [], today }
 
 function reply(content: unknown[], stopReason: string) {
   return new Response(JSON.stringify({ content, stop_reason: stopReason }), { status: 200 })
@@ -51,10 +51,10 @@ describe('converse', () => {
   it('hands the options from present_options to the screen', async () => {
     const options = [
       {
-        title: '残業する',
-        changes: [{ kind: 'overtime', equipmentId: 'MC-1', from: today, to: '2026-11-13', minutesPerDay: 120 }],
+        title: '土曜に動かす',
+        changes: [{ kind: 'holidayWork', equipmentId: 'MC-1', date: '2026-11-07' }],
         reason: '切削が詰まっている',
-        tradeoff: '残業が増える',
+        tradeoff: '休日出勤が増える',
       },
     ]
     vi.stubGlobal(
@@ -68,7 +68,7 @@ describe('converse', () => {
 
     await converse([{ role: 'user', content: '案を出して' }], () => state, { onHistory: vi.fn(), onOptions })
 
-    expect(onOptions).toHaveBeenCalledWith('call-2', [expect.objectContaining({ title: '残業する' })])
+    expect(onOptions).toHaveBeenCalledWith('call-2', [expect.objectContaining({ title: '土曜に動かす' })])
   })
 
   it('shows the error the server sent', async () => {
