@@ -1,6 +1,7 @@
 import type {
   Actual,
   Attendance,
+  ChannelStock,
   Crew,
   CustomerOrder,
   Equipment,
@@ -25,6 +26,7 @@ export const SHEETS = {
   lots: 'Lot',
   actuals: '実績',
   customerOrders: '受注',
+  channelStocks: '販売在庫',
 } as const
 
 export const COLUMNS = {
@@ -36,6 +38,7 @@ export const COLUMNS = {
     stock: '在庫',
     monthlyUsage: '月間の出荷数',
     materialStock: '材料在庫',
+    materialLeadDays: '材料の調達日数',
   },
   routes: { partNumber: '型番', order: '順番', step: '工程名', minutes: '1個あたりの分' },
   equipment: {
@@ -65,11 +68,23 @@ export const COLUMNS = {
     id: '受注番号',
     orderId: '注番',
     customer: '取引先',
+    channel: '販路',
     quantity: '数量',
     requested: '希望納期',
     answered: '回答納期',
   },
+  channelStocks: {
+    customer: '取引先',
+    partNumber: '型番',
+    asOf: '基準日',
+    stock: '在庫',
+    monthlySales: '月間の実売',
+    reorderDays: '注文の目安の日数',
+  },
 } as const
+
+// How a customer order is sold, as written in the 販路 column.
+const CHANNELS = { direct: '直販', distributor: '代理店' } as const
 
 export const FINISHED = '完了'
 
@@ -84,7 +99,8 @@ export type Row = Record<string, unknown>
 export type SheetRows = Record<string, Row[]>
 
 export function toPlantRows(data: PlantData): SheetRows {
-  const { parts, routes, equipment, setupRules, crews, attendance, orders, lots, actuals, customerOrders } = COLUMNS
+  const { parts, routes, equipment, setupRules, crews, attendance, orders, lots, actuals, customerOrders, channelStocks } =
+    COLUMNS
   return {
     [SHEETS.parts]: data.parts.map((part) => ({
       [parts.partNumber]: part.partNumber,
@@ -94,6 +110,7 @@ export function toPlantRows(data: PlantData): SheetRows {
       [parts.stock]: part.stock,
       [parts.monthlyUsage]: part.monthlyUsage,
       [parts.materialStock]: part.materialStock ?? '',
+      [parts.materialLeadDays]: part.materialLeadDays ?? '',
     })),
     [SHEETS.routes]: Object.entries(data.routes).flatMap(([partNumber, route]) =>
       route.map((step, index) => ({
@@ -155,9 +172,18 @@ export function toPlantRows(data: PlantData): SheetRows {
       [customerOrders.id]: entry.id,
       [customerOrders.orderId]: entry.orderId,
       [customerOrders.customer]: entry.customer,
+      [customerOrders.channel]: CHANNELS[entry.channel ?? 'direct'],
       [customerOrders.quantity]: entry.quantity,
       [customerOrders.requested]: entry.requested,
       [customerOrders.answered]: entry.answered ?? '',
+    })),
+    [SHEETS.channelStocks]: (data.channelStocks ?? []).map((entry) => ({
+      [channelStocks.customer]: entry.customer,
+      [channelStocks.partNumber]: entry.partNumber,
+      [channelStocks.asOf]: entry.asOf,
+      [channelStocks.stock]: entry.stock,
+      [channelStocks.monthlySales]: entry.monthlySales,
+      [channelStocks.reorderDays]: entry.reorderDays ?? '',
     })),
   }
 }
@@ -198,6 +224,11 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
     if (materialCell !== '' && (materialStock === null || materialStock < 0 || !Number.isInteger(materialStock))) {
       return errors.push(`${where}：材料在庫は0以上の整数にしてください`)
     }
+    const leadCell = text(row[c.materialLeadDays])
+    const materialLeadDays = leadCell === '' ? null : number(row[c.materialLeadDays])
+    if (leadCell !== '' && (materialLeadDays === null || materialLeadDays < 0 || !Number.isInteger(materialLeadDays))) {
+      return errors.push(`${where}：材料の調達日数は0以上の整数にしてください`)
+    }
     parts.push({
       partNumber,
       shape: text(row[c.shape]),
@@ -206,6 +237,7 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
       stock,
       monthlyUsage,
       ...(materialStock !== null ? { materialStock } : {}),
+      ...(materialLeadDays !== null ? { materialLeadDays } : {}),
     })
   })
 
@@ -404,13 +436,57 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
     const quantity = number(row[c.quantity])
     const requested = date(row[c.requested])
     const answered = text(row[c.answered]) === '' ? null : date(row[c.answered])
+    const channelCell = text(row[c.channel])
+    const channel = (Object.keys(CHANNELS) as (keyof typeof CHANNELS)[]).find((key) => CHANNELS[key] === channelCell)
     if (!id) return errors.push(`${where}：受注番号を入れてください`)
     if (customerOrders.some((entry) => entry.id === id)) return errors.push(`${where}：受注番号「${id}」が重複しています`)
     if (!order) return errors.push(`${where}：注番「${text(row[c.orderId])}」が注残にありません`)
     if (quantity === null || !Number.isInteger(quantity) || quantity <= 0) return errors.push(`${where}：数量は正の整数にしてください`)
     if (!requested) return errors.push(`${where}：希望納期を日付で入れてください`)
     if (answered === null && text(row[c.answered]) !== '') return errors.push(`${where}：回答納期は日付か空欄にしてください`)
-    customerOrders.push({ id, orderId: order.id, customer: text(row[c.customer]), quantity, requested, answered })
+    if (channelCell !== '' && !channel) return errors.push(`${where}：販路は「直販」か「代理店」か空欄にしてください`)
+    customerOrders.push({
+      id,
+      orderId: order.id,
+      customer: text(row[c.customer]),
+      ...(channel === 'distributor' ? { channel } : {}),
+      quantity,
+      requested,
+      answered,
+    })
+  })
+
+  // What distributors report holding and selling on; shown only, like the records above.
+  const channelStocks: ChannelStock[] = []
+  optionalRowsOf(SHEETS.channelStocks).forEach((row, index) => {
+    const c = COLUMNS.channelStocks
+    const where = at(SHEETS.channelStocks, index)
+    const customer = text(row[c.customer])
+    const partNumber = text(row[c.partNumber])
+    const asOf = date(row[c.asOf])
+    const stock = number(row[c.stock])
+    const monthlySales = number(row[c.monthlySales])
+    const reorderCell = text(row[c.reorderDays])
+    const reorderDays = reorderCell === '' ? null : number(row[c.reorderDays])
+    if (!customer) return errors.push(`${where}：取引先を入れてください`)
+    if (!parts.some((part) => part.partNumber === partNumber)) return errors.push(`${where}：型番「${partNumber}」が品目にありません`)
+    if (channelStocks.some((entry) => entry.customer === customer && entry.partNumber === partNumber)) {
+      return errors.push(`${where}：取引先「${customer}」の型番「${partNumber}」が重複しています`)
+    }
+    if (!asOf) return errors.push(`${where}：基準日を日付で入れてください`)
+    if (stock === null || !Number.isInteger(stock) || stock < 0) return errors.push(`${where}：在庫は0以上の整数にしてください`)
+    if (monthlySales === null || monthlySales < 0) return errors.push(`${where}：月間の実売は0以上の数にしてください`)
+    if (reorderCell !== '' && (reorderDays === null || !Number.isInteger(reorderDays) || reorderDays < 0)) {
+      return errors.push(`${where}：注文の目安の日数は0以上の整数か空欄にしてください`)
+    }
+    channelStocks.push({
+      customer,
+      partNumber,
+      asOf,
+      stock,
+      monthlySales,
+      ...(reorderDays !== null ? { reorderDays } : {}),
+    })
   })
 
   for (const order of orders) {
@@ -428,7 +504,10 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
 
   return errors.length > 0
     ? { data: null, errors }
-    : { data: { parts, routes, equipment, setupRules, crews, attendance, orders, lots, actuals, customerOrders }, errors }
+    : {
+        data: { parts, routes, equipment, setupRules, crews, attendance, orders, lots, actuals, customerOrders, channelStocks },
+        errors,
+      }
 }
 
 // Processes written in one cell, as 切断、曲げ or 切断,曲げ.

@@ -1,4 +1,4 @@
-import { Badge, Button, Card, Group, List, Stack, Text, Textarea } from '@mantine/core'
+import { Alert, Badge, Button, Card, Group, List, Stack, Text, Textarea } from '@mantine/core'
 import { IconCheck, IconEye, IconEyeOff } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 
@@ -11,7 +11,8 @@ type Props = {
   state: 'open' | 'adopted' | 'closed'
   previewing: boolean
   onPreview: () => void
-  onAdopt: (note: string) => void
+  // Returns why the option cannot go into the plan, or null once it is in.
+  onAdopt: (note: string) => string | null
 }
 
 export function OptionCard({ option, state, previewing, onPreview, onAdopt }: Props) {
@@ -20,6 +21,7 @@ export function OptionCard({ option, state, previewing, onPreview, onAdopt }: Pr
   const noteRef = useRef<HTMLTextAreaElement>(null)
   const resultRef = useRef<HTMLDivElement>(null)
   const adoptedHere = useRef(false)
+  const [refused, setRefused] = useState<string | null>(null)
 
   // Keep keyboard focus on the card as its controls change (WCAG 2.4.3).
   useEffect(() => {
@@ -31,9 +33,10 @@ export function OptionCard({ option, state, previewing, onPreview, onAdopt }: Pr
   }, [state])
 
   function adopt() {
-    adoptedHere.current = true
-    setNoting(false)
-    onAdopt(note.trim())
+    const reason = onAdopt(note.trim())
+    adoptedHere.current = reason === null
+    setRefused(reason)
+    if (!reason) setNoting(false)
   }
 
   return (
@@ -68,6 +71,13 @@ export function OptionCard({ option, state, previewing, onPreview, onAdopt }: Pr
           </div>
         ) : state === 'closed' ? null : noting ? (
           <Stack gap={6}>
+            {refused && (
+              <Alert color="orange" variant="light" role="status" p="xs">
+                <Text size="sm">
+                  この案は、そのあとの判断で計画に当てられなくなりました（{refused}）。Claude にもう一度相談してください。
+                </Text>
+              </Alert>
+            )}
             <Textarea
               ref={noteRef}
               label="選んだ理由（任意）"

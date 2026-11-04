@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import { createSampleData } from '../../sample-data/sample'
-import { addDays } from './dates'
-import { runPlan } from './plan'
-import { deliveriesOf, lotHistory, materialCover } from './records'
+import { addDays, weekday } from './dates'
+import { releaseTiming, runPlan } from './plan'
+import { channelOutlook, deliveriesOf, lotHistory, materialCover } from './records'
 import { createDefaultSettings } from './settings'
 
 const today = '2026-11-03'
@@ -64,5 +64,61 @@ describe('deliveriesOf', () => {
     const deliveries = deliveriesOf(data, '1045', plan.result.orders.find((order) => order.orderId === '1045'))
 
     expect(deliveries.every((entry) => entry.unplanned && entry.daysLate === null)).toBe(true)
+  })
+})
+
+describe('channelOutlook', () => {
+  const report = { customer: '取引先X', partNumber: 'A-100', asOf: '2026-10-31', stock: 40, monthlySales: 30 }
+  const outlook = (entry: typeof report & { reorderDays?: number }) =>
+    channelOutlook({ ...data, channelStocks: [entry] }, today)[0]
+
+  it('counts what the distributor has ordered and not received as its stock', () => {
+    // 取引先D has ordered 25 (order 1021) and 20 (order 1022) of A-100, not shipped yet.
+    const [ordered] = channelOutlook({ ...data, channelStocks: [{ ...report, customer: '取引先D' }] }, today)
+    expect(ordered).toMatchObject({ stockNow: 37, onOrder: 45, daysLeft: 82, orderOn: '2026-12-25' })
+  })
+
+  it('takes what was sold since the report off the stock and finds when the distributor orders', () => {
+    // 30 a month is one a day: 37 left on 11/3, at the 30-day level on 11/10.
+    expect(outlook(report)).toMatchObject({ stockNow: 37, onOrder: 0, daysLeft: 37, orderOn: '2026-11-10', orderQuantity: 30 })
+    expect(outlook({ ...report, reorderDays: 45 })).toMatchObject({ orderOn: today })
+  })
+
+  it('expects no order from a distributor that sells nothing', () => {
+    expect(outlook({ ...report, monthlySales: 0 })).toMatchObject({ stockNow: 40, daysLeft: null, orderOn: null })
+  })
+})
+
+describe('releaseTiming', () => {
+  const state = { data, settings: createDefaultSettings(), adopted: [], today }
+
+  it('gives the start once added, and the working day to order material by', () => {
+    // With the machining center down until 11/27, D-410 starts after the work queued for it.
+    const down = { kind: 'equipmentDown' as const, equipmentId: 'MC-1', from: today, to: '2026-11-27' }
+    const timing = releaseTiming(state, { partNumber: 'D-410', quantity: 10, needBy: '2026-12-20' }, [down])
+
+    // D-410 has no material on hand and takes 10 days: from 12/2 that is Sunday 11/22, so Friday 11/20.
+    expect(timing).toEqual({
+      startAt: '2026-12-02T10:00',
+      materialOrderBy: '2026-11-20',
+      materialLate: false,
+      materialArrives: null,
+      materialLeadDays: 10,
+    })
+    expect(weekday(timing.materialOrderBy!)).toBe(5)
+  })
+
+  it('says when material ordered today arrives, once the day to order it by has passed', () => {
+    // Started on 11/3 as the plan finds the machine free, ten days after an order today.
+    expect(releaseTiming(state, { partNumber: 'D-410', quantity: 10, needBy: '2026-12-20' })).toMatchObject({
+      materialLate: true,
+      materialArrives: addDays(today, 10),
+    })
+  })
+
+  it('names no order date when material on hand covers it or its lead time is unknown', () => {
+    expect(releaseTiming(state, { partNumber: 'A-100', quantity: 50, needBy: '2026-11-30' }).materialOrderBy).toBeNull()
+    const unknown = { ...state, data: { ...data, parts: data.parts.map(({ materialLeadDays: _lead, ...part }) => part) } }
+    expect(releaseTiming(unknown, { partNumber: 'D-410', quantity: 10, needBy: '2026-12-20' }).materialOrderBy).toBeNull()
   })
 })

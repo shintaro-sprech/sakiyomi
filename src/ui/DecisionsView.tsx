@@ -1,22 +1,26 @@
-import { Button, Card, Group, List, Stack, Text, Title } from '@mantine/core'
+import { Alert, Button, Card, Group, List, Stack, Text, Title } from '@mantine/core'
 import { IconArrowBackUp } from '@tabler/icons-react'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import type { Decision } from '../state/store'
 import { shortDateTime } from './format'
 
 type Props = {
   decisions: Decision[]
-  onRemove: (id: string) => void
+  // Returns the later decisions that keep this one, or null once it is undone.
+  onRemove: (id: string) => string | null
 }
 
 export function DecisionsView({ decisions, onRemove }: Props) {
   const headingRef = useRef<HTMLHeadingElement>(null)
+  const [refused, setRefused] = useState<{ id: string; later: string } | null>(null)
 
-  // The undone card disappears, so keep keyboard focus on the page (WCAG 2.4.3).
+  // The undone card disappears, so keep keyboard focus on the page (WCAG 2.4.3). A card
+  // that stays keeps focus on its button, and says why below it.
   function remove(id: string) {
-    onRemove(id)
-    headingRef.current?.focus()
+    const later = onRemove(id)
+    setRefused(later ? { id, later } : null)
+    if (!later) headingRef.current?.focus()
   }
 
   return (
@@ -64,6 +68,13 @@ export function DecisionsView({ decisions, onRemove }: Props) {
                   取り消す
                 </Button>
               </Group>
+              {refused?.id === decision.id && (
+                <Alert color="orange" variant="light" role="status" p="xs">
+                  <Text size="sm">
+                    あとの判断{refused.later}が、この判断の変更を使っています。先にそちらを取り消してください。
+                  </Text>
+                </Alert>
+              )}
             </Stack>
           </Card>
         ))

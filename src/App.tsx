@@ -25,10 +25,13 @@ import {
   IconMoon,
   IconSun,
 } from '@tabler/icons-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { changesToApply, type ProposedOption } from './assistant/tools'
-import { runPlan } from './engine/plan'
+import type { Replenishment } from './engine/demand'
+import { releaseTiming, runPlan } from './engine/plan'
+import { ChangeError, describeChange, type Change } from './engine/scenario'
+import type { PlantData } from './engine/types'
 import { useAppState } from './state/store'
 import { ChatPanel } from './ui/ChatPanel'
 import { DecisionsView } from './ui/DecisionsView'
@@ -57,6 +60,8 @@ function App() {
   // A lot the Gantt chart asked the progress tab to show, until another tab is picked.
   const [progressFocus, setProgressFocus] = useState<{ orderId: string; lotId: string } | null>(null)
   const [preview, setPreview] = useState<ProposedOption | null>(null)
+  // The title of an option closed because its changes no longer apply.
+  const [lostPreview, setLostPreview] = useState<string | null>(null)
   const [chatOpen, setChatOpen] = useState(wide)
   const [navOpened, nav] = useDisclosure(false)
   const reduceMotion = useReducedMotion()
@@ -66,9 +71,28 @@ function App() {
   const dark = useComputedColorScheme('light') === 'dark'
   const { planState, saved } = app
 
-  const plan = useMemo(
-    () => runPlan(planState, preview ? changesToApply(preview, planState.adopted).changes : []),
+  const previewChanges = useMemo(
+    () => (preview ? changesToApply(preview, planState.adopted).changes : []),
     [planState, preview],
+  )
+  // An option whose changes no longer apply, after a decision was adopted or undone since
+  // Claude proposed it, shows the plan without it and closes.
+  const planned = useMemo(() => {
+    try {
+      return { plan: runPlan(planState, previewChanges), previewFailed: false }
+    } catch (error) {
+      if (!(error instanceof ChangeError)) throw error
+      return { plan: runPlan(planState), previewFailed: true }
+    }
+  }, [planState, previewChanges])
+  const { plan } = planned
+  if (planned.previewFailed && preview) {
+    setLostPreview(preview.title)
+    setPreview(null)
+  }
+  const timingOf = useCallback(
+    (item: Replenishment) => releaseTiming(planState, item, planned.previewFailed ? [] : previewChanges),
+    [planState, previewChanges, planned.previewFailed],
   )
 
   // The menu only exists below md.
@@ -109,6 +133,7 @@ function App() {
   // On a phone the panel covers the plan, so close it to show the option being previewed.
   function showPreview(option: ProposedOption | null) {
     setPreview(option)
+    setLostPreview(null)
     if (option && !medium) {
       setChatOpen(false)
       focusBanner.current = true
@@ -216,6 +241,29 @@ function App() {
 
       {/* On a phone the open menu or panel covers the page, so the page must not take focus (WCAG 2.4.11). */}
       <AppShell.Main inert={!medium && (navOpened || chatOpen)}>
+        {plan.skipped.length > 0 && (
+          <Alert color="orange" variant="light" mb="md" title="計画に入れられない変更があります">
+            <Text size="sm">
+              判断の記録の次の変更は、もう当てられないので外して計画しています：
+              {plan.skipped.map((change) => safeLabel(change, planState.data)).join('、')}
+            </Text>
+          </Alert>
+        )}
+        {lostPreview && (
+          <Alert
+            color="orange"
+            variant="light"
+            mb="md"
+            role="status"
+            withCloseButton
+            closeButtonLabel="閉じる"
+            onClose={() => setLostPreview(null)}
+          >
+            <Text size="sm">
+              案「{lostPreview}」は、そのあとの判断で計画に当てられなくなったので、表示をやめました。Claude にもう一度相談してください。
+            </Text>
+          </Alert>
+        )}
         {preview && (
           <Alert color="blue" variant="light" mb="md" role="status" ref={bannerRef} tabIndex={-1}>
             <Group justify="space-between" wrap="wrap" gap="xs">
@@ -228,7 +276,12 @@ function App() {
         )}
         {tab === 'outlook' && (
           // While an option is previewed the outlook shows its plan, so nothing is added from it.
-          <OutlookView plan={plan} today={planState.today} onAdopt={preview ? undefined : app.adopt} />
+          <OutlookView
+            plan={plan}
+            today={planState.today}
+            timingOf={timingOf}
+            onAdopt={preview ? undefined : app.adopt}
+          />
         )}
         {tab === 'progress' && (
           <ProgressView
@@ -257,6 +310,15 @@ function App() {
       </AppShell.Aside>
     </AppShell>
   )
+}
+
+// A change described in words, or its kind when what it names is gone.
+function safeLabel(change: Change, data: PlantData): string {
+  try {
+    return describeChange(change, data)
+  } catch {
+    return change.kind
+  }
 }
 
 export default App

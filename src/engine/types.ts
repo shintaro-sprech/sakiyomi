@@ -43,6 +43,8 @@ export type Part = {
   // Raw material on hand that no open order has set aside, counted in the pieces it can
   // make. An open order with no material arrival date has its material already.
   materialStock?: number
+  // Calendar days from ordering the material to its arrival. Absent when not known.
+  materialLeadDays?: number
 }
 
 // Setup minutes on a process when the shape changes from one to another.
@@ -105,6 +107,7 @@ export type PlantData = {
   // Shown only; the plan does not read them. Data from before they were kept has none.
   actuals?: Actual[]
   customerOrders?: CustomerOrder[]
+  channelStocks?: ChannelStock[]
 }
 
 // One step a lot has already been through, as recorded on the shop floor.
@@ -125,9 +128,25 @@ export type CustomerOrder = {
   id: string
   orderId: string
   customer: string
+  // Sold straight to the user of the part, or to a distributor that holds stock and sells
+  // it on. Absent means direct.
+  channel?: 'direct' | 'distributor'
   quantity: number
   requested: IsoDate
   answered: IsoDate | null
+}
+
+// Stock a distributor holds and how many it sells on in a month, as its last report said.
+// What leaves the plant is not sold until it leaves the distributor, so real demand is the
+// distributor's sales, and the distributor orders again when its stock runs low.
+export type ChannelStock = {
+  customer: string
+  partNumber: string
+  asOf: IsoDate
+  stock: number
+  monthlySales: number
+  // The distributor orders when its stock falls to this many days of sales. Absent is 30.
+  reorderDays?: number
 }
 
 export type Settings = {

@@ -1,9 +1,9 @@
 import { compareSchedules, type ScheduleComparison } from '../engine/compare'
-import { orderDemands, replenishments } from '../engine/demand'
+import { orderDemands, replenishments, type Replenishment } from '../engine/demand'
 import { monthlyOutlook, unusedChanges, type MonthlyOutlook } from '../engine/economics'
-import { runPlan, type PlanState } from '../engine/plan'
+import { releaseTiming, runPlan, type PlanState, type ReleaseTiming } from '../engine/plan'
 import { summarizeProgress } from '../engine/progress'
-import { deliveriesOf } from '../engine/records'
+import { channelOutlook, deliveriesOf } from '../engine/records'
 import { ChangeError, describeChange, parseChange, sameChange, type Change } from '../engine/scenario'
 import type { IsoDate, PlantData } from '../engine/types'
 import { TOOL_NAMES } from './toolSchemas'
@@ -133,7 +133,7 @@ export function describeSituation(state: PlanState) {
     overtimePremium: settings.overtimePremium,
     holidayPremium: settings.holidayPremium,
     adoptedChanges: state.adopted.map((change) => describeChange(change, data)),
-    thisMonth: summarizeOutlook(monthlyOutlook(plan, state.today), data, state.today),
+    thisMonth: summarizeOutlook(monthlyOutlook(plan, state.today), data, state.today, (item) => releaseTiming(state, item)),
     parts: data.parts,
     setupRules: data.setupRules,
     crews: data.crews.map((crew) => ({
@@ -188,8 +188,9 @@ export function describeSituation(state: PlanState) {
         lateDays: forecast?.lateDays ?? null,
         status: forecast?.status ?? 'done',
         deliveries: deliveriesOf(data, order.id, forecast).map(
-          ({ customer, quantity, requested, answered, daysLate, unplanned }) => ({
+          ({ customer, channel, quantity, requested, answered, daysLate, unplanned }) => ({
             customer,
+            channel: channel ?? 'direct',
             quantity,
             requested,
             answered,
@@ -200,10 +201,29 @@ export function describeSituation(state: PlanState) {
       }
     }),
     unscheduled: result.unscheduled,
+    distributorStock: channelOutlook(data, state.today).map(
+      ({ customer, partNumber, asOf, stock, monthlySales, stockNow, onOrder, daysLeft, orderOn, orderQuantity }) => ({
+        customer,
+        partNumber,
+        reportedOn: asOf,
+        reportedStock: stock,
+        monthlySales,
+        stockNow,
+        onOrder,
+        daysLeft,
+        orderOn,
+        orderQuantity,
+      }),
+    ),
   }
 }
 
-function summarizeOutlook(outlook: MonthlyOutlook, data: PlantData, today: IsoDate) {
+function summarizeOutlook(
+  outlook: MonthlyOutlook,
+  data: PlantData,
+  today: IsoDate,
+  timingOf: (item: Replenishment) => ReleaseTiming,
+) {
   return {
     month: outlook.month,
     revenue: outlook.revenue,
@@ -216,7 +236,10 @@ function summarizeOutlook(outlook: MonthlyOutlook, data: PlantData, today: IsoDa
     setupHours: outlook.setupHours,
     lateOrders: outlook.lateOrders,
     shortagesUntilEndOfNextMonth: outlook.shortages,
-    replenishments: replenishments(data, today),
+    replenishments: replenishments(data, today).map((item) => {
+      const { startAt, materialOrderBy, materialLate, materialArrives } = timingOf(item)
+      return { ...item, startAt, materialOrderBy, materialLate, materialArrives }
+    }),
     ordersByClass: outlook.classCounts,
   }
 }
@@ -274,7 +297,7 @@ function simulate(state: PlanState, changes: Change[]) {
     overtimeHoursDelta: effect.overtimeHoursDelta,
     holidayHoursDelta: effect.holidayHoursDelta,
     unusedChanges: effect.unusedChanges.map((change) => describeChange(change, data)),
-    thisMonthAfter: summarizeOutlook(effect.outlook, data, state.today),
+    thisMonthAfter: summarizeOutlook(effect.outlook, data, state.today, (item) => releaseTiming(state, item, changes)),
   }
 }
 

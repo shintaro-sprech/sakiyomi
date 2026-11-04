@@ -11,7 +11,10 @@ export type Change =
   | { kind: 'holidayWork'; equipmentId: string; date: IsoDate }
   | { kind: 'expedite'; orderId: string }
   | { kind: 'hold'; orderId: string; until: IsoDate }
-  | { kind: 'addOrder'; partNumber: string; quantity: number; due: IsoDate }
+  // orderId is the number the order got when the planner adopted it, so later changes that
+  // name it still find it after an earlier decision is undone. Without it the order takes
+  // the next free 追加 number.
+  | { kind: 'addOrder'; partNumber: string; quantity: number; due: IsoDate; orderId?: string }
   | { kind: 'headcount'; crew: string; from: IsoDate; to: IsoDate; people: number }
 
 export type Downtime = { equipmentId: string; from: IsoDate; to: IsoDate }
@@ -37,7 +40,15 @@ export type Scenario = {
 // Raised when a change cannot apply. The message is shown to people and Claude.
 export class ChangeError extends Error {}
 
-export function buildScenario(data: PlantData, settings: Settings, changes: Change[], today: IsoDate): Scenario {
+// With skipped given, a change that cannot apply is left out and listed there instead of
+// stopping the whole plan.
+export function buildScenario(
+  data: PlantData,
+  settings: Settings,
+  changes: Change[],
+  today: IsoDate,
+  skipped?: Change[],
+): Scenario {
   const scenario: Scenario = {
     data: structuredClone(data),
     settings: structuredClone(settings),
@@ -49,9 +60,40 @@ export function buildScenario(data: PlantData, settings: Settings, changes: Chan
     headcount: [],
   }
   for (const change of changes) {
-    applyChange(scenario, change, today)
+    try {
+      applyChange(scenario, change, today)
+    } catch (error) {
+      if (!skipped || !(error instanceof ChangeError)) throw error
+      skipped.push(change)
+    }
   }
   return scenario
+}
+
+// Applies more changes to a scenario, stopping at the first that cannot apply.
+export function applyChanges(scenario: Scenario, changes: Change[], today: IsoDate): void {
+  for (const change of changes) applyChange(scenario, change, today)
+}
+
+// The changes of a decision about to be adopted, each added order given the number it gets
+// after the decisions already adopted.
+export function pinAddedOrders(
+  data: PlantData,
+  settings: Settings,
+  adopted: Change[],
+  changes: Change[],
+  today: IsoDate,
+): Change[] {
+  const scenario = buildScenario(data, settings, adopted, today, [])
+  return changes.map((change) => {
+    const pinned = change.kind === 'addOrder' && !change.orderId ? { ...change, orderId: nextAddedOrderId(scenario.data) } : change
+    try {
+      applyChange(scenario, pinned, today)
+    } catch (error) {
+      if (!(error instanceof ChangeError)) throw error
+    }
+    return pinned
+  })
 }
 
 function applyChange(scenario: Scenario, change: Change, today: IsoDate): void {
@@ -114,8 +156,11 @@ function applyChange(scenario: Scenario, change: Change, today: IsoDate): void {
       if (!Number.isInteger(change.quantity) || change.quantity <= 0) {
         throw new ChangeError('追加する数量は正の整数にしてください')
       }
+      if (change.orderId && scenario.data.orders.some((order) => order.id === change.orderId)) {
+        throw new ChangeError(`注番${change.orderId}はもうあります`)
+      }
       scenario.data.orders.push({
-        id: nextAddedOrderId(scenario.data),
+        id: change.orderId ?? nextAddedOrderId(scenario.data),
         partNumber: change.partNumber,
         quantity: change.quantity,
         due: change.due,
@@ -216,8 +261,10 @@ export function describeChange(change: Change, data: PlantData): string {
 }
 
 // Changes come from parseChange, so equal changes serialize the same way.
+// The same change, whether or not an added order has had its number pinned.
 export function sameChange(a: Change, b: Change): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
+  const plain = (change: Change) => (change.kind === 'addOrder' ? { ...change, orderId: undefined } : change)
+  return JSON.stringify(plain(a)) === JSON.stringify(plain(b))
 }
 
 function formatRange(from: IsoDate, to: IsoDate): string {

@@ -7,7 +7,7 @@
 import { addDays, weekday } from '../src/engine/dates'
 import { lastDayOfMonth } from '../src/engine/demand'
 import { setupMinutes } from '../src/engine/setup'
-import type { Actual, CustomerOrder, IsoDate, Order, PlantData } from '../src/engine/types'
+import type { Actual, ChannelStock, CustomerOrder, IsoDate, Order, PlantData } from '../src/engine/types'
 
 export function createSampleData(today: IsoDate): PlantData {
   const day = (offset: number) => addDays(today, offset)
@@ -25,10 +25,10 @@ export function createSampleData(today: IsoDate): PlantData {
 
   const data: PlantData = {
     parts: [
-      { partNumber: 'A-100', shape: '板金', price: 6000, materialCost: 1200, stock: 120, monthlyUsage: 90, materialStock: 200 },
-      { partNumber: 'B-200', shape: '丸物', price: 18000, materialCost: 3500, stock: 0, monthlyUsage: 45, materialStock: 20 },
-      { partNumber: 'C-310', shape: '角物', price: 3500, materialCost: 700, stock: 400, monthlyUsage: 60, materialStock: 60 },
-      { partNumber: 'D-410', shape: '丸物', price: 9000, materialCost: 1500, stock: 300, monthlyUsage: 30, materialStock: 0 },
+      { partNumber: 'A-100', shape: '板金', price: 6000, materialCost: 1200, stock: 120, monthlyUsage: 90, materialStock: 200, materialLeadDays: 5 },
+      { partNumber: 'B-200', shape: '丸物', price: 18000, materialCost: 3500, stock: 0, monthlyUsage: 45, materialStock: 20, materialLeadDays: 7 },
+      { partNumber: 'C-310', shape: '角物', price: 3500, materialCost: 700, stock: 400, monthlyUsage: 60, materialStock: 60, materialLeadDays: 3 },
+      { partNumber: 'D-410', shape: '丸物', price: 9000, materialCost: 1500, stock: 300, monthlyUsage: 30, materialStock: 0, materialLeadDays: 10 },
     ],
     routes: {
       'A-100': [
@@ -101,10 +101,30 @@ export function createSampleData(today: IsoDate): PlantData {
       { id: 'L1034-2', orderId: '1034', quantity: 12, stepIndex: 2, arrivedOn: day(0) },
     ],
   }
-  return { ...data, actuals: sampleActuals(data), customerOrders: sampleCustomerOrders(data.orders) }
+  return {
+    ...data,
+    actuals: sampleActuals(data),
+    customerOrders: sampleCustomerOrders(data.orders),
+    channelStocks: sampleChannelStocks(today),
+  }
 }
 
 const CUSTOMERS = ['取引先A', '取引先B', '取引先C', '取引先D', '取引先E']
+// Customers that hold stock and sell it on; the others buy what they use.
+const DISTRIBUTORS = ['取引先D', '取引先E']
+
+// What the distributors reported at the end of last month: one with weeks of A-100 left,
+// one about to order A-100 and B-200 again, and one with months of C-310. Their sales add
+// up to about half of what the plant ships of each part; the rest is sold direct.
+export function sampleChannelStocks(today: IsoDate): ChannelStock[] {
+  const asOf = addDays(today, -Number(today.slice(8, 10)))
+  return [
+    { customer: '取引先D', partNumber: 'A-100', asOf, stock: 50, monthlySales: 30 },
+    { customer: '取引先E', partNumber: 'A-100', asOf, stock: 15, monthlySales: 15 },
+    { customer: '取引先E', partNumber: 'B-200', asOf, stock: 6, monthlySales: 20 },
+    { customer: '取引先D', partNumber: 'C-310', asOf, stock: 120, monthlySales: 25 },
+  ]
+}
 
 function workdayBefore(date: IsoDate, count: number): IsoDate {
   let result = date
@@ -185,16 +205,19 @@ export function sampleActuals(
 // any day of the week; the last order still waits for an answer on one of them.
 export function sampleCustomerOrders(orders: Order[]): CustomerOrder[] {
   return orders.flatMap((order, index) => {
-    const customer = (offset: number) => CUSTOMERS[(index + offset) % CUSTOMERS.length]
+    const customer = (offset: number) => {
+      const name = CUSTOMERS[(index + offset) % CUSTOMERS.length]
+      return DISTRIBUTORS.includes(name) ? { customer: name, channel: 'distributor' as const } : { customer: name }
+    }
     const due = workdayOnOrBefore(order.due)
     if (order.quantity < 30) {
-      return [{ id: `J${order.id}-1`, orderId: order.id, customer: customer(0), quantity: order.quantity, requested: due, answered: due }]
+      return [{ id: `J${order.id}-1`, orderId: order.id, ...customer(0), quantity: order.quantity, requested: due, answered: due }]
     }
     const first = Math.floor(order.quantity / 2)
     const last = index === orders.length - 1
     return [
-      { id: `J${order.id}-1`, orderId: order.id, customer: customer(0), quantity: first, requested: workdayBefore(order.due, 3), answered: workdayBefore(order.due, 2) },
-      { id: `J${order.id}-2`, orderId: order.id, customer: customer(1), quantity: order.quantity - first, requested: due, answered: last ? null : due },
+      { id: `J${order.id}-1`, orderId: order.id, ...customer(0), quantity: first, requested: workdayBefore(order.due, 3), answered: workdayBefore(order.due, 2) },
+      { id: `J${order.id}-2`, orderId: order.id, ...customer(1), quantity: order.quantity - first, requested: due, answered: last ? null : due },
     ]
   })
 }

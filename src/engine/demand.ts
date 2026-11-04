@@ -15,7 +15,7 @@ export type OrderDemand = {
 }
 
 // Average month used to turn monthly usage into a daily rate.
-const DAYS_PER_MONTH = 30
+export const DAYS_PER_MONTH = 30
 
 export function lastDayOfMonth(date: IsoDate): IsoDate {
   const [year, month] = date.split('-').map(Number)

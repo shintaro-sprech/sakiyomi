@@ -15,7 +15,18 @@ describe('executeTool', () => {
 
     expect(situation.today).toBe(today)
     expect(situation.workdays).toBe('月火水木金')
-    expect(situation.thisMonth.replenishments).toEqual([{ partNumber: 'B-200', quantity: 55, needBy: '2026-11-25' }])
+    // Material for 35 of the 55 is not on hand; ordered today (7 days) it lands after the start.
+    expect(situation.thisMonth.replenishments).toEqual([
+      {
+        partNumber: 'B-200',
+        quantity: 55,
+        needBy: '2026-11-25',
+        startAt: '2026-11-06T10:00',
+        materialOrderBy: '2026-10-30',
+        materialLate: true,
+        materialArrives: '2026-11-10',
+      },
+    ])
     expect(situation.orders.find((order) => order.id === '1045')?.deliveries[0]).toMatchObject({ answered: '2026-11-11', daysLate: 1 })
     expect(situation.orders.find((order) => order.id === '1045')).toMatchObject({
       unstarted: 30,
@@ -151,6 +162,19 @@ describe('executeTool', () => {
     expect(crew?.equipment).toEqual(['MC-1', 'HT-1', 'GRD-1', 'DRL-1'])
     expect(describeSituation(state).equipment.find((item) => item.id === 'MC-1')?.lastPart).toBe('B-200')
     expect(crew?.days.find((day) => day.date === '2026-11-05')?.people).toBe(1)
+  })
+
+  it('tells Claude how the order is sold and what the distributors hold', () => {
+    const situation = describeSituation(state)
+    const distributor = (customer: string, partNumber: string) =>
+      situation.distributorStock.find((entry) => entry.customer === customer && entry.partNumber === partNumber)
+
+    expect(situation.orders.find((order) => order.id === '1022')?.deliveries[0]).toMatchObject({ customer: '取引先D', channel: 'distributor' })
+    expect(situation.orders.find((order) => order.id === '1030')?.deliveries[0]).toMatchObject({ channel: 'direct' })
+    // Reported on 10/31: 6 left selling 20 a month is 4 on 11/3, six days of sales, so an order is due now.
+    expect(distributor('取引先E', 'B-200')).toMatchObject({ stockNow: 4, daysLeft: 6, orderOn: today, orderQuantity: 20 })
+    // 50 selling 30 a month is 47 on 11/3; with 45 ordered and not shipped, 92 days, at 30 days on 1/4.
+    expect(distributor('取引先D', 'A-100')).toMatchObject({ stockNow: 47, onOrder: 45, daysLeft: 92, orderOn: '2027-01-04' })
   })
 
   it('tells Claude which processes each machine takes and how fast it runs', () => {

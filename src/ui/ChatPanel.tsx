@@ -24,7 +24,8 @@ type Props = {
   decisions: Decision[]
   previewing: ProposedOption | null
   onPreview: (option: ProposedOption | null) => void
-  onAdopt: (decision: Omit<Decision, 'id' | 'at'>) => void
+  // Returns why the option cannot go into the plan, or null once it is in.
+  onAdopt: (decision: Omit<Decision, 'id' | 'at'>) => string | null
 }
 
 const SAMPLE_PROMPTS = [
@@ -97,8 +98,8 @@ export function ChatPanel({ planState, sampleData, decisions, previewing, onPrev
     }
   }
 
-  function adopt(key: string, option: ProposedOption, note: string) {
-    onAdopt({
+  function adopt(key: string, option: ProposedOption, note: string): string | null {
+    const refused = onAdopt({
       title: option.title,
       ...changesToApply(option, planState.adopted),
       reason: option.reason,
@@ -106,8 +107,10 @@ export function ChatPanel({ planState, sampleData, decisions, previewing, onPrev
       note,
       sourceKey: key,
     })
+    if (refused) return refused
     setPendingNotes((current) => [...current, `案「${option.title}」を計画に反映しました。${note ? `理由: ${note}` : ''}`])
     if (previewing === option) onPreview(null)
+    return null
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {

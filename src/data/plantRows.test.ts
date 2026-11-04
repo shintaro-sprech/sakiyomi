@@ -74,6 +74,35 @@ describe('plant rows', () => {
     )
   })
 
+  it('reads how each customer order is sold, and what distributors report', () => {
+    const { data, errors } = parsePlantRows(toPlantRows(createSampleData('2026-11-03')))
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    delete rows[SHEETS.channelStocks]
+    rows[SHEETS.customerOrders] = rows[SHEETS.customerOrders].map(({ [COLUMNS.customerOrders.channel]: _channel, ...row }) => row)
+    const older = parsePlantRows(rows)
+
+    expect(errors).toEqual([])
+    expect(data?.customerOrders?.find((entry) => entry.customer === '取引先D')?.channel).toBe('distributor')
+    expect(data?.channelStocks).toHaveLength(4)
+    expect(older.errors).toEqual([])
+    expect(older.data?.channelStocks).toEqual([])
+    expect(older.data?.customerOrders?.every((entry) => entry.channel === undefined)).toBe(true)
+  })
+
+  it('refuses a channel, a report or a lead time it cannot read', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    rows[SHEETS.customerOrders][0][COLUMNS.customerOrders.channel] = '卸'
+    rows[SHEETS.channelStocks][0][COLUMNS.channelStocks.partNumber] = 'Z-999'
+    rows[SHEETS.channelStocks][1][COLUMNS.channelStocks.stock] = -1
+    rows[SHEETS.parts][3][COLUMNS.parts.materialLeadDays] = 2.5
+    const { errors } = parsePlantRows(rows)
+
+    expect(errors).toContain('受注の2行目：販路は「直販」か「代理店」か空欄にしてください')
+    expect(errors).toContain('販売在庫の2行目：型番「Z-999」が品目にありません')
+    expect(errors).toContain('販売在庫の3行目：在庫は0以上の整数にしてください')
+    expect(errors).toContain('品目の5行目：材料の調達日数は0以上の整数にしてください')
+  })
+
   it('refuses a last part the equipment could not have run', () => {
     const rows = toPlantRows(createSampleData('2026-11-03'))
     const bending = rows[SHEETS.equipment].findIndex((row) => row[COLUMNS.equipment.id] === 'BND-1')

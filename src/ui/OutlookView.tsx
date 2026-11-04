@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { dailyUsage, orderDemands, replenishments, type PriorityClass, type Replenishment } from '../engine/demand'
 import { monthlyOutlook } from '../engine/economics'
-import type { Plan } from '../engine/plan'
-import { materialCover, type MaterialCover } from '../engine/records'
+import type { Plan, ReleaseTiming } from '../engine/plan'
+import { channelOutlook, materialCover, type ChannelOutlook, type MaterialCover } from '../engine/records'
 import { describeChange, type Change } from '../engine/scenario'
 import type { CrewDay } from '../engine/scheduler'
 import type { IsoDate } from '../engine/types'
@@ -15,6 +15,8 @@ import { formatYen, shortDate, shortDateTime, weekdayName } from './format'
 type Props = {
   plan: Plan
   today: IsoDate
+  // When a shortfall would start once added, and when to order its material.
+  timingOf: (item: Replenishment) => ReleaseTiming
   // Absent while an option is previewed.
   onAdopt?: (decision: Omit<Decision, 'id' | 'at'>) => void
 }
@@ -40,12 +42,17 @@ export function ClassBadge({ value }: { value: PriorityClass }) {
   )
 }
 
-export function OutlookView({ plan, today, onAdopt }: Props) {
+export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
   const outlook = useMemo(() => monthlyOutlook(plan, today), [plan, today])
   const { data, settings } = plan.scenario
   const demands = useMemo(() => orderDemands(data, today), [data, today])
   // The plan's own data, so a shortfall already added as an order is gone.
   const toRelease = useMemo(() => new Map(replenishments(data, today).map((item) => [item.partNumber, item])), [data, today])
+  const timings = useMemo(
+    () => new Map([...toRelease.values()].map((item) => [item.partNumber, timingOf(item)])),
+    [toRelease, timingOf],
+  )
+  const channels = useMemo(() => channelOutlook(data, today), [data, today])
   // The part just added keeps keyboard focus where its button was (WCAG 2.4.3).
   const [added, setAdded] = useState<string | null>(null)
   const addedRef = useRef<HTMLDivElement>(null)
@@ -54,14 +61,23 @@ export function OutlookView({ plan, today, onAdopt }: Props) {
   }, [added])
   const add = (item: Replenishment) => {
     const change: Change = { kind: 'addOrder', partNumber: item.partNumber, quantity: item.quantity, due: item.needBy }
-    // The plan does not wait for material it has no arrival date for, so the record says so.
+    // The plan does not wait for material it has no arrival date for, so the record says so,
+    // with the day to order it by.
     const cover = materialCover(data, item.partNumber, item.quantity)
-    const material =
+    const timing = timings.get(item.partNumber)
+    const need =
       cover?.kind === 'partly'
-        ? `材料は${cover.pieces}個分しかなく、${cover.toOrder}個分は手配が要る（計画は入荷を待たずに組んでいる）。`
+        ? `材料は${cover.pieces}個分しかなく、${cover.toOrder}個分は発注が要る`
         : cover?.kind === 'none'
-          ? `材料がなく、${cover.toOrder}個分の手配が要る（計画は入荷を待たずに組んでいる）。`
+          ? `材料がなく、${cover.toOrder}個分の発注が要る`
           : ''
+    const start = shortDate(timing?.startAt?.slice(0, 10))
+    const when = !timing?.materialOrderBy
+      ? ''
+      : timing.materialLate
+        ? `。今日発注しても${shortDate(timing.materialArrives)}着で、${start}の着手に間に合わない`
+        : `。${start}の着手に間に合わせるには、${shortDate(timing.materialOrderBy)}までに発注する`
+    const material = need ? `${need}${when}（計画は入荷を待たずに組んでいる）。` : ''
     onAdopt?.({
       title: `${item.partNumber}の足りない分を追加`,
       changes: [change],
@@ -290,6 +306,11 @@ export function OutlookView({ plan, today, onAdopt }: Props) {
                               )}
                             </Group>
                             <MaterialLine cover={materialCover(data, part.partNumber, shortfall.quantity)} />
+                            <TimingLine
+                              timing={timings.get(part.partNumber)}
+                              cover={materialCover(data, part.partNumber, shortfall.quantity)}
+                              today={today}
+                            />
                           </Stack>
                         ) : added === part.partNumber ? (
                           <div ref={addedRef} tabIndex={-1} style={{ width: 'fit-content' }}>
@@ -311,6 +332,57 @@ export function OutlookView({ plan, today, onAdopt }: Props) {
           </Table.ScrollContainer>
         </Paper>
       </section>
+
+      {channels.length > 0 && (
+        <section>
+          <Title order={2} size="h4" mb={4}>
+            代理店の在庫
+          </Title>
+          <Text size="sm" c="dimmed" mb="sm">
+            代理店から来る注文は、在庫の見通しの「1日の出荷」に入っています。
+          </Text>
+          <Paper withBorder>
+            <Table.ScrollContainer minWidth={640}>
+              <Table verticalSpacing={6} horizontalSpacing={6}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th className="sticky-col">代理店・型番</Table.Th>
+                    <Table.Th>報告</Table.Th>
+                    <Table.Th ta="right">今の在庫</Table.Th>
+                    <Table.Th ta="right">注文済み</Table.Th>
+                    <Table.Th ta="right">実売の何日分</Table.Th>
+                    <Table.Th pl="xl">注文が来る見込み</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {[...channels]
+                    .sort((a, b) => (a.orderOn ?? '9999').localeCompare(b.orderOn ?? '9999') || a.customer.localeCompare(b.customer))
+                    .map((entry) => (
+                      <Table.Tr key={`${entry.customer}-${entry.partNumber}`}>
+                        <Table.Th scope="row" className="sticky-col" fw={400} style={{ whiteSpace: 'nowrap' }}>
+                          {entry.customer}　{entry.partNumber}
+                        </Table.Th>
+                        <Table.Td className="tabular">{shortDate(entry.asOf)}</Table.Td>
+                        <Table.Td ta="right" className="tabular">
+                          {entry.stockNow}個
+                        </Table.Td>
+                        <Table.Td ta="right" className="tabular">
+                          {entry.onOrder > 0 ? `${entry.onOrder}個` : '—'}
+                        </Table.Td>
+                        <Table.Td ta="right" className="tabular">
+                          {entry.daysLeft === null ? '—' : `${entry.daysLeft}日分`}
+                        </Table.Td>
+                        <Table.Td pl="xl">
+                          <OrderExpected entry={entry} today={today} />
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                </Table.Tbody>
+              </Table>
+            </Table.ScrollContainer>
+          </Paper>
+        </section>
+      )}
     </Stack>
   )
 }
@@ -322,11 +394,67 @@ export function MaterialLine({ cover }: { cover: MaterialCover | null }) {
     cover.kind === 'ready'
       ? '材料あり：すぐ投入できる'
       : cover.kind === 'partly'
-        ? `材料は${cover.pieces}個分：${cover.toOrder}個分は手配から`
-        : '材料なし：手配から'
+        ? `材料は${cover.pieces}個分：${cover.toOrder}個分は発注から`
+        : '材料なし：発注から'
   return (
     <Text size="sm" style={{ whiteSpace: 'nowrap' }}>
       {text}
+    </Text>
+  )
+}
+
+// When the pieces short would start once added, and the day to order their material by.
+// Past that day, material ordered today comes after the start, so the start holds only
+// for the pieces material on hand covers.
+function TimingLine({ timing, cover, today }: { timing: ReleaseTiming | undefined; cover: MaterialCover | null; today: IsoDate }) {
+  if (!timing?.startAt) return null
+  const start = shortDate(timing.startAt.slice(0, 10))
+  const arrives = shortDate(timing.materialArrives)
+  const short = cover !== null && cover.kind !== 'ready'
+  if (timing.materialLate) {
+    return (
+      <div className="tabular">
+        {cover?.kind === 'partly' && <Text size="sm">着手 {start}（材料のある{cover.pieces}個）</Text>}
+        <Text size="sm" c="red" fw={700}>
+          {cover?.kind === 'partly' ? `残りは今日発注して${arrives}着` : `材料を今日発注して${arrives}着`}
+        </Text>
+        {cover?.kind !== 'partly' && <Text size="sm">着手はそのあと</Text>}
+      </div>
+    )
+  }
+  const lastDay = timing.materialOrderBy === today
+  return (
+    <div className="tabular">
+      <Text size="sm">着手 {start}</Text>
+      {timing.materialOrderBy ? (
+        <Text size="sm" fw={lastDay ? 700 : undefined}>
+          材料の発注 {lastDay ? '今日' : shortDate(timing.materialOrderBy)}まで（調達{timing.materialLeadDays}日）
+        </Text>
+      ) : (
+        short &&
+        timing.materialLeadDays === null && (
+          <Text size="sm" c="dimmed">
+            材料の調達日数が未入力
+          </Text>
+        )
+      )}
+    </div>
+  )
+}
+
+// When a distributor is expected to order from the plant, and how many.
+function OrderExpected({ entry, today }: { entry: ChannelOutlook; today: IsoDate }) {
+  if (entry.orderOn === null) return <Text size="sm">見込みなし</Text>
+  if (entry.orderOn <= today) {
+    return (
+      <Text size="sm" fw={700} className="tabular" style={{ whiteSpace: 'nowrap' }}>
+        今にも {entry.orderQuantity}個
+      </Text>
+    )
+  }
+  return (
+    <Text size="sm" className="tabular" style={{ whiteSpace: 'nowrap' }}>
+      {shortDate(entry.orderOn)}ごろ {entry.orderQuantity}個
     </Text>
   )
 }

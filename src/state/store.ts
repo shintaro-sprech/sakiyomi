@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { createSampleData, sampleActuals, sampleCustomerOrders } from '../../sample-data/sample'
+import { createSampleData, sampleActuals, sampleChannelStocks, sampleCustomerOrders } from '../../sample-data/sample'
 import { localToday } from '../engine/dates'
 import type { PlanState } from '../engine/plan'
-import type { Change } from '../engine/scenario'
+import { applyChanges, buildScenario, ChangeError, pinAddedOrders, type Change } from '../engine/scenario'
 import { createDefaultSettings } from '../engine/settings'
 import type { Equipment, PlantData, Settings } from '../engine/types'
 
@@ -92,11 +92,12 @@ function withProcessLists(saved: SavedState): SavedState {
 }
 
 // A sample saved before the sample had something gets it, each part on its own: the part
-// each machine ran last and material on hand. Something the planner cleared, such as a
-// machine's last part set to none, is kept as empty and not filled in again. The steps lots
-// have been through and the customer orders are not edited in the app, so they are made
-// afresh from the saved lots and orders: their dates fit a sample saved on another day. An
-// order with no customer orders saved keeps none.
+// each machine ran last, material on hand and its lead time. Something the planner cleared,
+// such as a machine's last part set to none, is kept as empty and not filled in again. The
+// steps lots have been through, the customer orders and the distributors' reports are not
+// edited in the app, so they are made afresh from the saved lots and orders and from today:
+// their dates fit a sample saved on another day. An order with no customer orders saved
+// keeps none.
 function withSampleAdditions(saved: SavedState): SavedState {
   if (saved.dataSource !== 'sample') return saved
   const sample = createSampleData(localToday())
@@ -109,12 +110,17 @@ function withSampleAdditions(saved: SavedState): SavedState {
     const material = new Map(sample.parts.map((part) => [part.partNumber, part.materialStock]))
     data = { ...data, parts: data.parts.map((part) => ({ ...part, materialStock: material.get(part.partNumber) })) }
   }
+  if (!data.parts.some((part) => 'materialLeadDays' in part)) {
+    const lead = new Map(sample.parts.map((part) => [part.partNumber, part.materialLeadDays]))
+    data = { ...data, parts: data.parts.map((part) => ({ ...part, materialLeadDays: lead.get(part.partNumber) })) }
+  }
   const customerOrders = sampleCustomerOrders(data.orders)
   const served = data.customerOrders && new Set(data.customerOrders.map((entry) => entry.orderId))
   data = {
     ...data,
     actuals: sampleActuals(data),
     customerOrders: served ? customerOrders.filter((entry) => served.has(entry.orderId)) : customerOrders,
+    channelStocks: sampleChannelStocks(localToday()),
   }
   return { ...saved, data }
 }
@@ -157,19 +163,51 @@ export function useAppState() {
     [saved, today],
   )
 
-  const adopt = useCallback((decision: Omit<Decision, 'id' | 'at'>) => {
-    setSaved((current) => ({
-      ...current,
-      decisions: [
-        ...current.decisions,
-        { ...decision, id: crypto.randomUUID(), at: new Date().toISOString() },
-      ],
-    }))
-  }, [])
+  // A decision whose changes no longer apply, such as an option Claude made before a
+  // decision it names was undone, is not adopted. Returns why, or null once adopted.
+  const adopt = useCallback(
+    (decision: Omit<Decision, 'id' | 'at'>): string | null => {
+      const adopted = saved.decisions.flatMap((entry) => entry.changes)
+      const changes = pinAddedOrders(saved.data, saved.settings, adopted, decision.changes, today)
+      try {
+        applyChanges(buildScenario(saved.data, saved.settings, adopted, today, []), changes, today)
+      } catch (error) {
+        if (error instanceof ChangeError) return error.message
+        throw error
+      }
+      setSaved((current) => ({
+        ...current,
+        decisions: [...current.decisions, { ...decision, changes, id: crypto.randomUUID(), at: new Date().toISOString() }],
+      }))
+      return null
+    },
+    [saved, today],
+  )
 
-  const removeDecision = useCallback((id: string) => {
-    setSaved((current) => ({ ...current, decisions: current.decisions.filter((decision) => decision.id !== id) }))
-  }, [])
+  // A decision a later one builds on, such as the order a later hold names, stays until the
+  // later one is undone. Returns the titles of those later decisions, or null once undone.
+  // Changes that already did not apply do not count.
+  const removeDecision = useCallback(
+    (id: string): string | null => {
+      const failing = (decisions: Decision[]) => {
+        const skipped: Change[] = []
+        buildScenario(saved.data, saved.settings, decisions.flatMap((decision) => decision.changes), today, skipped)
+        return skipped
+      }
+      const before = failing(saved.decisions)
+      const rest = saved.decisions.filter((decision) => decision.id !== id)
+      const broken = failing(rest).filter((change) => !before.includes(change))
+      if (broken.length > 0) {
+        return rest
+          .filter((decision) => decision.changes.some((change) => broken.includes(change)))
+          .map((decision) => `「${decision.title}」`)
+          .join('')
+      }
+      setSaved((current) => ({ ...current, decisions: current.decisions.filter((decision) => decision.id !== id) }))
+      return null
+    },
+    [saved, today],
+  )
 
   const updateSettings = useCallback((settings: Settings) => {
     setSaved((current) => ({ ...current, settings }))

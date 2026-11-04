@@ -607,12 +607,13 @@ function DeliveriesPanel({
           受注の記録はありません
         </Text>
       ) : (
-        <Table.ScrollContainer minWidth={620}>
+        <Table.ScrollContainer minWidth={680}>
           <Table striped verticalSpacing={6} horizontalSpacing={8}>
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>受注番号</Table.Th>
                 <Table.Th>取引先</Table.Th>
+                <Table.Th>販路</Table.Th>
                 <Table.Th ta="right">数量</Table.Th>
                 <Table.Th>希望納期</Table.Th>
                 <Table.Th>回答納期</Table.Th>
@@ -626,6 +627,7 @@ function DeliveriesPanel({
                     {entry.id}
                   </Table.Th>
                   <Table.Td>{entry.customer}</Table.Td>
+                  <Table.Td>{entry.channel === 'distributor' ? '代理店' : '直販'}</Table.Td>
                   <Table.Td ta="right" className="tabular">
                     {entry.quantity}個
                   </Table.Td>
