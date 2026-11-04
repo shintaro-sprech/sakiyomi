@@ -38,7 +38,15 @@ export const COLUMNS = {
     materialStock: '材料在庫',
   },
   routes: { partNumber: '型番', order: '順番', step: '工程名', minutes: '1個あたりの分' },
-  equipment: { id: '設備ID', name: '設備名', process: '担当工程', setup: '段取りの分', hourlyCost: '1時間の運転費', lastPart: '直前の型番' },
+  equipment: {
+    id: '設備ID',
+    name: '設備名',
+    processes: '担当工程',
+    speed: '速さ',
+    setup: '段取りの分',
+    hourlyCost: '1時間の運転費',
+    lastPart: '直前の型番',
+  },
   setupRules: { process: '工程名', fromShape: '前の形状', toShape: '次の形状', minutes: '段取りの分' },
   crews: { name: '班名', processes: '担当工程', people: '人数' },
   attendance: { crew: '班名', date: '日付', people: '人数' },
@@ -68,7 +76,8 @@ export const FINISHED = '完了'
 // The earlier name of the equipment's running cost column.
 const PREVIOUS_HOURLY_COST = '1時間の費用'
 
-// A crew's processes share one cell, written 切断、曲げ、溶接.
+// A crew's processes share one cell, written 切断、曲げ、溶接, and so do those of a
+// multi-tasking machine.
 const PROCESS_SEPARATOR = '、'
 
 export type Row = Record<string, unknown>
@@ -97,7 +106,8 @@ export function toPlantRows(data: PlantData): SheetRows {
     [SHEETS.equipment]: data.equipment.map((item) => ({
       [equipment.id]: item.id,
       [equipment.name]: item.name,
-      [equipment.process]: item.process,
+      [equipment.processes]: item.processes.join(PROCESS_SEPARATOR),
+      [equipment.speed]: item.speed ?? 1,
       [equipment.setup]: item.setupMinutes,
       [equipment.hourlyCost]: item.hourlyCost,
       [equipment.lastPart]: item.lastPart ?? '',
@@ -220,24 +230,33 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
   )
 
   const equipment: Equipment[] = []
+  // The row each machine came from, for problems found once the crews are read.
+  const equipmentRow = new Map<string, string>()
   rowsOf(SHEETS.equipment).forEach((row, index) => {
     const c = COLUMNS.equipment
     const where = at(SHEETS.equipment, index)
     const id = text(row[c.id])
-    const process = text(row[c.process])
+    const processes = [...new Set(processList(row[c.processes]))]
     const setup = number(row[c.setup]) ?? 0
     const hourlyCost = number(row[c.hourlyCost] ?? row[PREVIOUS_HOURLY_COST]) ?? 0
     const lastPart = text(row[c.lastPart])
-    if (!id || !process) return errors.push(`${where}：設備IDと担当工程を入れてください`)
+    // Left empty in workbooks made before machines had a speed.
+    const speed = text(row[c.speed]) === '' ? 1 : number(row[c.speed])
+    if (!id || processes.length === 0) return errors.push(`${where}：設備IDと担当工程を入れてください`)
     if (equipment.some((item) => item.id === id)) return errors.push(`${where}：設備ID「${id}」が重複しています`)
-    if (lastPart && !routes[lastPart]) return errors.push(`${where}：直前の型番「${lastPart}」が工程表にありません`)
-    if (lastPart && !routes[lastPart].some((step) => step.name === process)) {
-      return errors.push(`${where}：直前の型番「${lastPart}」の工程表に「${process}」がありません`)
+    if (speed === null || speed < 0.1 || speed > 10) {
+      return errors.push(`${where}：速さは、工程表のとおりを1として、0.1以上10以下の数にしてください（2割速いなら1.2）`)
     }
+    if (lastPart && !routes[lastPart]) return errors.push(`${where}：直前の型番「${lastPart}」が工程表にありません`)
+    if (lastPart && !routes[lastPart].some((step) => processes.includes(step.name))) {
+      return errors.push(`${where}：直前の型番「${lastPart}」の工程表に「${processes.join(PROCESS_SEPARATOR)}」がありません`)
+    }
+    equipmentRow.set(id, where)
     equipment.push({
       id,
       name: text(row[c.name]) || id,
-      process,
+      processes,
+      ...(speed !== 1 ? { speed } : {}),
       setupMinutes: Math.max(0, setup),
       hourlyCost: Math.max(0, hourlyCost),
       ...(lastPart ? { lastPart } : {}),
@@ -262,9 +281,7 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
     const c = COLUMNS.crews
     const where = at(SHEETS.crews, index)
     const name = text(row[c.name])
-    const processes = text(row[c.processes])
-      .split(/[、,，・\s]+/)
-      .filter((process) => process !== '')
+    const processes = processList(row[c.processes])
     const people = number(row[c.people])
     if (!name || processes.length === 0) return errors.push(`${where}：班名と担当工程を入れてください`)
     if (crews.some((crew) => crew.name === name)) return errors.push(`${where}：班名「${name}」が重複しています`)
@@ -272,12 +289,21 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
     for (const process of processes) {
       const other = crews.find((crew) => crew.processes.includes(process))
       if (other) return errors.push(`${where}：工程「${process}」は班「${other.name}」にもあります`)
-      if (!equipment.some((item) => item.process === process)) {
+      if (!equipment.some((item) => item.processes.includes(process))) {
         return errors.push(`${where}：工程「${process}」を担当する設備がありません`)
       }
     }
     crews.push({ name, processes, people })
   })
+  // One person runs a machine, so all of a machine's processes belong to one crew.
+  for (const item of equipment) {
+    const owners = crews.filter((crew) => item.processes.some((process) => crew.processes.includes(process)))
+    if (owners.length > 1) {
+      errors.push(
+        `${equipmentRow.get(item.id)}：担当工程が、班「${owners.map((crew) => crew.name).join('」と「')}」に分かれています。1台の設備の工程は、同じ班に入れてください`,
+      )
+    }
+  }
 
   const attendance: Attendance[] = []
   optionalRowsOf(SHEETS.attendance).forEach((row, index) => {
@@ -355,7 +381,7 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
       return errors.push(`${where}：Lot「${lot.id}」の工程${stepNumber}が重複しています`)
     }
     const machine = equipment.find((candidate) => candidate.id === text(row[c.equipmentId]))
-    if (!machine || machine.process !== route[stepNumber - 1]?.name) {
+    if (!machine || !machine.processes.includes(route[stepNumber - 1]?.name)) {
       return errors.push(`${where}：設備ID「${text(row[c.equipmentId])}」は工程「${route[stepNumber - 1]?.name}」の設備ではありません`)
     }
     const start = dateTime(row[c.start])
@@ -403,6 +429,13 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
   return errors.length > 0
     ? { data: null, errors }
     : { data: { parts, routes, equipment, setupRules, crews, attendance, orders, lots, actuals, customerOrders }, errors }
+}
+
+// Processes written in one cell, as 切断、曲げ or 切断,曲げ.
+function processList(value: unknown): string[] {
+  return text(value)
+    .split(/[、,，・\s]+/)
+    .filter((process) => process !== '')
 }
 
 function text(value: unknown): string {

@@ -1,12 +1,13 @@
 import type { Scenario } from './scenario'
 import type { Crew, IsoDate, PlantData } from './types'
 
-// The crew whose people run each piece of equipment, by equipment id.
-// Equipment whose process is in no crew is not in the map.
+// The crew whose people run each piece of equipment, by equipment id: the crew of any of
+// its processes, as a machine's processes all belong to one crew. Equipment whose
+// processes are in no crew is not in the map.
 export function crewOfEquipment(data: PlantData): Map<string, Crew> {
   const crews = new Map<string, Crew>()
   for (const equipment of data.equipment) {
-    const crew = data.crews.find((candidate) => candidate.processes.includes(equipment.process))
+    const crew = data.crews.find((candidate) => equipment.processes.some((process) => candidate.processes.includes(process)))
     if (crew) crews.set(equipment.id, crew)
   }
   return crews

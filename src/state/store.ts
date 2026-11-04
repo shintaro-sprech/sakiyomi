@@ -5,7 +5,7 @@ import { localToday } from '../engine/dates'
 import type { PlanState } from '../engine/plan'
 import type { Change } from '../engine/scenario'
 import { createDefaultSettings } from '../engine/settings'
-import type { PlantData, Settings } from '../engine/types'
+import type { Equipment, PlantData, Settings } from '../engine/types'
 
 // A change the planner put into the plan, kept with the reasoning behind it.
 export type Decision = {
@@ -53,17 +53,42 @@ function load(): SavedState {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as SavedState
-      if (parsed.version === 3) return withSampleAdditions(parsed)
+      if (parsed.version === 3) return withSampleAdditions(withProcessLists(parsed))
     }
     const previous = window.localStorage.getItem(PREVIOUS_KEY)
     if (previous) {
       const parsed = JSON.parse(previous) as Omit<SavedState, 'version'> & { version: number }
-      if (parsed.version === 2) return withSampleAdditions(fromVersion2(parsed))
+      if (parsed.version === 2) return withSampleAdditions(withProcessLists(fromVersion2(parsed)))
     }
   } catch {
     // Fall through to a fresh sample.
   }
   return createInitialState()
+}
+
+// Machines saved before one could take several processes had a single process and no
+// speed. A saved sample takes the sample's machines, routes and crews' processes, none of
+// which the app edits, so its multi-tasking machine has work; the crews keep their people.
+function withProcessLists(saved: SavedState): SavedState {
+  const equipment = saved.data.equipment as (Equipment & { process?: string })[]
+  if (equipment.every((item) => Array.isArray(item.processes))) return saved
+  const lists = equipment.map(({ process, ...item }) => ({ ...item, processes: item.processes ?? [process ?? ''] }))
+  if (saved.dataSource !== 'sample') return { ...saved, data: { ...saved.data, equipment: lists } }
+  const sample = createSampleData(localToday())
+  const fromSample = new Map(sample.equipment.map((item) => [item.id, item]))
+  const crewProcesses = new Map(sample.crews.map((crew) => [crew.name, crew.processes]))
+  return {
+    ...saved,
+    data: {
+      ...saved.data,
+      routes: sample.routes,
+      equipment: lists.map((item) => {
+        const match = fromSample.get(item.id)
+        return match ? { ...item, processes: match.processes, ...(match.speed ? { speed: match.speed } : {}) } : item
+      }),
+      crews: saved.data.crews.map((crew) => ({ ...crew, processes: crewProcesses.get(crew.name) ?? crew.processes })),
+    },
+  }
 }
 
 // A sample saved before the sample had something gets it, each part on its own: the part

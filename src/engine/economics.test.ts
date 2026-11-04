@@ -11,7 +11,7 @@ function plant(quantity: number, stock = 100, monthlyUsage = 0): PlantData {
   return {
     parts: [{ partNumber: 'P', shape: '丸物', price: 10000, materialCost: 4000, stock, monthlyUsage }],
     routes: { P: [{ name: '加工', minutesPerPiece: 60 }] },
-    equipment: [{ id: 'M1', name: 'M1', process: '加工', setupMinutes: 0, hourlyCost: 600 }],
+    equipment: [{ id: 'M1', name: 'M1', processes: ['加工'], setupMinutes: 0, hourlyCost: 600 }],
     setupRules: [],
     crews: [],
     attendance: [],

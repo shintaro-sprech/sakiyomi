@@ -41,8 +41,8 @@ function plan(input: PlanInput) {
   return schedule(buildScenario(data, settings, input.changes ?? [], start), start)
 }
 
-function machine(id: string, process: string, setupMinutes = 0): Equipment {
-  return { id, name: id, process, setupMinutes, hourlyCost: 0 }
+function machine(id: string, process: string | string[], setupMinutes = 0, speed?: number): Equipment {
+  return { id, name: id, processes: [process].flat(), setupMinutes, hourlyCost: 0, ...(speed ? { speed } : {}) }
 }
 
 function part(partNumber: string, shape: string, stock = 1000, monthlyUsage = 0): Part {
@@ -114,6 +114,100 @@ describe('schedule', () => {
     const [first, second] = result.operations.sort((x, y) => x.stepIndex - y.stepIndex)
     expect(first.endAt).toBe('2026-11-03T09:00')
     expect(second.startAt).toBe('2026-11-03T10:00')
+  })
+
+  it('runs a multi-tasking machine on any of its processes, with no transfer between steps it takes in a row', () => {
+    const result = plan({
+      settings: { transferMinutes: 60 },
+      routes: {
+        P: [
+          { name: '切削', minutesPerPiece: 60 },
+          { name: '穴あけ', minutesPerPiece: 30 },
+        ],
+        Q: oneStep('穴あけ', 60),
+      },
+      equipment: [machine('MC', ['切削', '穴あけ']), machine('DR', '穴あけ')],
+      orders: [order('1', 'P', 1, '2026-11-10'), order('2', 'Q', 1, '2026-11-10')],
+    })
+
+    const steps = (orderId: string) =>
+      result.operations
+        .filter((operation) => operation.orderId === orderId)
+        .sort((a, b) => a.stepIndex - b.stepIndex)
+        .map((operation) => [operation.equipmentId, operation.startAt, operation.endAt])
+    // Q's drilling takes the drill; P's goes on right after its cutting on the same machine.
+    expect(steps('2')).toEqual([['DR', '2026-11-03T08:00', '2026-11-03T09:00']])
+    expect(steps('1')).toEqual([
+      ['MC', '2026-11-03T08:00', '2026-11-03T09:00'],
+      ['MC', '2026-11-03T09:00', '2026-11-03T09:30'],
+    ])
+  })
+
+  it('waits the transfer time when the next step moves to another machine', () => {
+    const result = plan({
+      settings: { transferMinutes: 60 },
+      routes: {
+        P: [
+          { name: '切削', minutesPerPiece: 60 },
+          { name: '穴あけ', minutesPerPiece: 30 },
+        ],
+      },
+      equipment: [machine('MC', '切削'), machine('DR', '穴あけ')],
+      orders: [order('1', 'P', 1, '2026-11-10')],
+    })
+
+    const [, drilling] = result.operations.sort((a, b) => a.stepIndex - b.stepIndex)
+    expect(drilling.startAt).toBe('2026-11-03T10:00')
+  })
+
+  it('takes setup on a multi-tasking machine from the rules of the process it runs', () => {
+    const result = plan({
+      parts: [part('R1', '丸物'), part('R2', '丸物')],
+      setupRules: [
+        { process: '切削', fromShape: '丸物', toShape: '丸物', minutes: 40 },
+        { process: '穴あけ', fromShape: '丸物', toShape: '丸物', minutes: 10 },
+      ],
+      routes: { R1: oneStep('切削', 60), R2: oneStep('穴あけ', 60) },
+      equipment: [{ ...machine('MC', ['切削', '穴あけ'], 50), lastPart: 'R1' }],
+      orders: [order('1', 'R2', 1, '2026-11-10')],
+    })
+
+    expect(result.operations[0].setupMinutes).toBe(10)
+  })
+
+  it('lets a machine wait a little for more urgent work, but not most of a long job', () => {
+    const onM = (firstMinutes: number) =>
+      plan({
+        routes: {
+          L: oneStep('加工', 600),
+          H: [
+            { name: '前', minutesPerPiece: firstMinutes },
+            { name: '加工', minutesPerPiece: 60 },
+          ],
+        },
+        equipment: [machine('A', '前'), machine('M', '加工')],
+        orders: [order('L', 'L', 1, '2026-11-30'), order('H', 'H', 1, '2026-11-30')],
+        changes: [{ kind: 'expedite', orderId: 'H' }],
+      })
+        .operations.filter((operation) => operation.equipmentId === 'M')
+        .map((operation) => operation.orderId)
+
+    // H reaches M at 09:00, so M waits an hour for it.
+    expect(onM(60)).toEqual(['H', 'L'])
+    // H reaches M at 15:00, so M runs L from 08:00 rather than stand idle for seven hours.
+    expect(onM(420)).toEqual(['L', 'H'])
+  })
+
+  it('runs a faster machine in less time than the route says', () => {
+    const result = plan({
+      routes: { P: oneStep('溶接', 30) },
+      equipment: [machine('W1', '溶接', 0, 1.25)],
+      orders: [order('1', 'P', 10, '2026-11-10')],
+    })
+
+    // 10 pieces of 30 minutes is 300 minutes at speed 1, and 240 at 1.25.
+    expect(result.operations[0].workMinutes).toBe(240)
+    expect(result.operations[0].endAt).toBe('2026-11-03T12:00')
   })
 
   it('holds unreleased quantity until its material arrives', () => {

@@ -92,9 +92,13 @@ type Job = {
   needByEnd: number
   priorityClass: PriorityClass
   expedited: boolean
+  // Minutes at speed 1, rounded up to whole minutes once the machine is known.
   steps: { index: number; name: string; minutes: number }[]
   next: number
+  // When its last step ended, and where; the next step on another machine waits the
+  // transfer time first.
   readyAt: number
+  lastEquipmentId: string | null
 }
 
 type Machine = {
@@ -109,6 +113,7 @@ type Candidate = {
   job: Job
   machine: Machine
   setup: number
+  minutes: number
   start: number
   setupEnd: number
   end: number
@@ -198,14 +203,22 @@ function regularSegments(machine: Machine, start: number, end: number) {
   return workingSegments(machine.calendar, start, end).filter((segment) => isRegularDay(machine.calendar, segment.day))
 }
 
+// How far into the time to the first finish a machine may wait for more urgent work.
+// At 1 a machine could stand idle almost as long as the job it passes over, which on long
+// jobs left it idle for a day, so that stopping it moved other work earlier.
+const WAIT_SHARE = 0.75
+
 // List scheduler in the Giffler-Thompson style. Each round finds the
 // operation that could finish first, then lets every operation that would
-// start before that on the same equipment compete by priority:
+// start before that on the same equipment compete by priority, as long as it
+// starts within WAIT_SHARE of the way from the earliest start to that finish:
 // expedited first, then demand class (A this month, B next month, C later),
 // then a score mixing slack to the need date (days) and setup time (hours)
 // by settings.dueWeight, then need date, order id and lot id.
-// Setup comes from the shape-to-shape rules; the first operation on each
-// piece of equipment needs none.
+// Setup comes from the shape-to-shape rules of the step's process; each
+// machine starts from the part it ran last. A step waits the transfer time
+// after the step before it, unless both run on the same machine, as on a
+// multi-tasking machine taking several steps of a lot in a row.
 // A running machine needs one person of its crew, so on a regular working day
 // no more machines of a crew run at once than its people at work; people move
 // between the crew's machines as work ends. When an operation would take the
@@ -236,9 +249,9 @@ export function schedule(scenario: Scenario, planStart: IsoDate): ScheduleResult
     const candidates: Candidate[] = []
     for (const job of active) {
       const step = job.steps[job.next]
-      const eligible = machines.filter((machine) => machine.equipment.process === step.name)
+      const eligible = machines.filter((machine) => machine.equipment.processes.includes(step.name))
       const found = eligible
-        .map((machine) => evaluate(data, staffing, job, machine, step.minutes))
+        .map((machine) => evaluate(data, staffing, job, machine, settings.transferMinutes))
         .filter((candidate): candidate is Candidate => candidate !== null)
       if (found.length === 0) {
         for (const rest of job.steps.slice(job.next)) {
@@ -264,13 +277,15 @@ export function schedule(scenario: Scenario, planStart: IsoDate): ScheduleResult
           : best,
       )
       const crewWide = staffing.firstShortMinute(earliest.machine, earliest.start, earliest.end, 1) !== null
+      const sameGroup = (candidate: Candidate) =>
+        candidate.machine === earliest.machine || (crewWide && candidate.machine.crew === earliest.machine.crew)
+      const firstStart = Math.min(...candidates.filter(sameGroup).map((candidate) => candidate.start))
+      const waitUntil = firstStart + WAIT_SHARE * (earliest.end - firstStart)
       const conflict = candidates.filter(
-        (candidate) =>
-          candidate.start < earliest.end &&
-          (candidate.machine === earliest.machine || (crewWide && candidate.machine.crew === earliest.machine.crew)),
+        (candidate) => candidate.start < earliest.end && candidate.start <= waitUntil && sameGroup(candidate),
       )
       const chosen = conflict.sort((a, b) => compareCandidates(a, b, settings.dueWeight))[0]
-      commit(chosen, planStart, operations, settings.transferMinutes)
+      commit(chosen, planStart, operations)
       staffing.assign(chosen.machine, chosen.start, chosen.end)
     }
 
@@ -356,7 +371,7 @@ function buildJobs(scenario: Scenario, planStart: IsoDate, workEnd: number): Job
       route.slice(first).map((step, offset) => ({
         index: first + offset,
         name: step.name,
-        minutes: Math.ceil(quantity * step.minutesPerPiece),
+        minutes: quantity * step.minutesPerPiece,
       }))
 
     const lots = data.lots
@@ -371,6 +386,7 @@ function buildJobs(scenario: Scenario, planStart: IsoDate, workEnd: number): Job
         steps: stepsFrom(lot.stepIndex, lot.quantity),
         next: 0,
         readyAt: holdUntil,
+        lastEquipmentId: null,
       })
     }
 
@@ -385,6 +401,7 @@ function buildJobs(scenario: Scenario, planStart: IsoDate, workEnd: number): Job
         steps: stepsFrom(0, unreleased),
         next: 0,
         readyAt: Math.max(0, materialDay * MINUTES_PER_DAY, holdUntil),
+        lastEquipmentId: null,
       })
     }
   }
@@ -393,10 +410,15 @@ function buildJobs(scenario: Scenario, planStart: IsoDate, workEnd: number): Job
 
 // Where the operation fits on the machine: the first time both the machine and
 // the job are free and someone of the crew is free from start to end.
-function evaluate(data: PlantData, staffing: Staffing, job: Job, machine: Machine, minutes: number): Candidate | null {
-  const setup = setupMinutes(data, machine.equipment, machine.lastPart, job.partNumber)
-  const searchEnd = (Math.floor(Math.max(machine.freeAt, job.readyAt) / MINUTES_PER_DAY) + SEARCH_LIMIT_DAYS) * MINUTES_PER_DAY
-  let from = Math.max(machine.freeAt, job.readyAt)
+function evaluate(data: PlantData, staffing: Staffing, job: Job, machine: Machine, transfer: number): Candidate | null {
+  const step = job.steps[job.next]
+  // Less a hair, so 900 minutes at speed 1.2 is 750 and not 751 by rounding error.
+  const minutes = Math.ceil(step.minutes / (machine.equipment.speed ?? 1) - 1e-9)
+  const setup = setupMinutes(data, machine.equipment, step.name, machine.lastPart, job.partNumber)
+  const moved = job.lastEquipmentId !== null && job.lastEquipmentId !== machine.equipment.id
+  const ready = job.readyAt + (moved ? transfer : 0)
+  const searchEnd = (Math.floor(Math.max(machine.freeAt, ready) / MINUTES_PER_DAY) + SEARCH_LIMIT_DAYS) * MINUTES_PER_DAY
+  let from = Math.max(machine.freeAt, ready)
   for (let attempt = 0; from < searchEnd; attempt += 1) {
     const start = nextWorkingMinute(machine.calendar, from)
     if (start === null) return null
@@ -404,7 +426,7 @@ function evaluate(data: PlantData, staffing: Staffing, job: Job, machine: Machin
     const end = setupEnd === null ? null : addWorkingMinutes(machine.calendar, setupEnd, minutes)
     if (setupEnd === null || end === null) return null
     const short = staffing.firstShortMinute(machine, start, end)
-    if (short === null) return { job, machine, setup, start, setupEnd, end, waitedForPeople: attempt > 0 }
+    if (short === null) return { job, machine, setup, minutes, start, setupEnd, end, waitedForPeople: attempt > 0 }
     from = staffing.nextFree(machine, short)
   }
   return null
@@ -428,7 +450,7 @@ function score(candidate: Candidate, dueWeight: number): number {
   return dueWeight * slackDays + (1 - dueWeight) * (candidate.setup / 60)
 }
 
-function commit(candidate: Candidate, planStart: IsoDate, operations: ScheduledOperation[], transfer: number): void {
+function commit(candidate: Candidate, planStart: IsoDate, operations: ScheduledOperation[]): void {
   const { job, machine } = candidate
   const step = job.steps[job.next]
   operations.push({
@@ -441,7 +463,7 @@ function commit(candidate: Candidate, planStart: IsoDate, operations: ScheduledO
     quantity: job.quantity,
     planned: job.planned,
     setupMinutes: candidate.setup,
-    workMinutes: candidate.setup + step.minutes,
+    workMinutes: candidate.setup + candidate.minutes,
     waitedForPeople: candidate.waitedForPeople,
     start: candidate.start,
     setupEnd: candidate.setupEnd,
@@ -451,7 +473,8 @@ function commit(candidate: Candidate, planStart: IsoDate, operations: ScheduledO
   })
   machine.freeAt = candidate.end
   machine.lastPart = job.partNumber
-  job.readyAt = candidate.end + transfer
+  job.readyAt = candidate.end
+  job.lastEquipmentId = machine.equipment.id
   job.next += 1
 }
 

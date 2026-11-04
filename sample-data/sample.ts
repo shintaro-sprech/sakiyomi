@@ -51,21 +51,22 @@ export function createSampleData(today: IsoDate): PlantData {
       ],
       'D-410': [
         { name: '切削', minutesPerPiece: 35 },
+        { name: 'タップ', minutesPerPiece: 5 },
         { name: '研削', minutesPerPiece: 20 },
         { name: '検査', minutesPerPiece: 8 },
       ],
     },
     equipment: [
-      { id: 'CUT-1', name: '切断機1', process: '切断', setupMinutes: 30, hourlyCost: 400, lastPart: 'C-310' },
-      { id: 'BND-1', name: 'ベンダー1', process: '曲げ', setupMinutes: 45, hourlyCost: 500, lastPart: 'A-100' },
-      { id: 'WLD-1', name: '溶接ロボ1', process: '溶接', setupMinutes: 20, hourlyCost: 700 },
-      { id: 'WLD-2', name: '溶接ロボ2', process: '溶接', setupMinutes: 20, hourlyCost: 700 },
-      { id: 'MC-1', name: 'マシニング1', process: '切削', setupMinutes: 60, hourlyCost: 1200, lastPart: 'B-200' },
-      { id: 'HT-1', name: '熱処理炉1', process: '熱処理', setupMinutes: 30, hourlyCost: 1500, lastPart: 'B-200' },
-      { id: 'GRD-1', name: '研削盤1', process: '研削', setupMinutes: 40, hourlyCost: 900, lastPart: 'B-200' },
-      { id: 'DRL-1', name: 'ボール盤1', process: '穴あけ', setupMinutes: 15, hourlyCost: 300, lastPart: 'C-310' },
-      { id: 'INS-1', name: '検査台1', process: '検査', setupMinutes: 10, hourlyCost: 200, lastPart: 'B-200' },
-      { id: 'PCK-1', name: '梱包台1', process: '梱包', setupMinutes: 0, hourlyCost: 100, lastPart: 'B-200' },
+      { id: 'CUT-1', name: '切断機1', processes: ['切断'], setupMinutes: 30, hourlyCost: 400, lastPart: 'C-310' },
+      { id: 'BND-1', name: 'ベンダー1', processes: ['曲げ'], speed: 1.2, setupMinutes: 45, hourlyCost: 500, lastPart: 'A-100' },
+      { id: 'WLD-1', name: '溶接ロボ1', processes: ['溶接'], setupMinutes: 20, hourlyCost: 700 },
+      { id: 'WLD-2', name: '溶接ロボ2', processes: ['溶接'], setupMinutes: 20, hourlyCost: 700 },
+      { id: 'MC-1', name: 'マシニング1', processes: ['切削', 'タップ'], setupMinutes: 60, hourlyCost: 1200, lastPart: 'B-200' },
+      { id: 'HT-1', name: '熱処理炉1', processes: ['熱処理'], setupMinutes: 30, hourlyCost: 1500, lastPart: 'B-200' },
+      { id: 'GRD-1', name: '研削盤1', processes: ['研削'], setupMinutes: 40, hourlyCost: 900, lastPart: 'B-200' },
+      { id: 'DRL-1', name: 'ボール盤1', processes: ['穴あけ'], setupMinutes: 15, hourlyCost: 300, lastPart: 'C-310' },
+      { id: 'INS-1', name: '検査台1', processes: ['検査'], setupMinutes: 10, hourlyCost: 200, lastPart: 'B-200' },
+      { id: 'PCK-1', name: '梱包台1', processes: ['梱包'], setupMinutes: 0, hourlyCost: 100, lastPart: 'B-200' },
     ],
     setupRules: [
       { process: '切削', fromShape: '丸物', toShape: '丸物', minutes: 20 },
@@ -77,7 +78,7 @@ export function createSampleData(today: IsoDate): PlantData {
     ],
     crews: [
       { name: '板金班', processes: ['切断', '曲げ', '溶接'], people: 3 },
-      { name: '機械班', processes: ['切削', '熱処理', '研削', '穴あけ'], people: 2 },
+      { name: '機械班', processes: ['切削', 'タップ', '熱処理', '研削', '穴あけ'], people: 2 },
       { name: '仕上げ班', processes: ['検査', '梱包'], people: 1 },
     ],
     attendance: [{ crew: '機械班', date: workday(2), people: 1 }],
@@ -136,7 +137,11 @@ export function sampleActuals(
     let good = lot.quantity
     for (let stepIndex = Math.min(lot.stepIndex, route.length) - 1; stepIndex >= 0; stepIndex -= 1) {
       const step = route[stepIndex]
-      const machines = data.equipment.filter((equipment) => equipment.process === step.name)
+      // A machine kept for the step runs it when there is one, so a multi-tasking
+      // machine is left to its own work.
+      const able = data.equipment.filter((equipment) => equipment.processes.includes(step.name))
+      const kept = able.filter((equipment) => equipment.processes.length === 1)
+      const machines = kept.length > 0 ? kept : able
       if (machines.length === 0) continue
       const defect = (lotIndex + stepIndex) % 5 === 0 ? 1 : 0
       steps.unshift({
@@ -144,8 +149,10 @@ export function sampleActuals(
         lotIndex,
         stepIndex,
         partNumber: order.partNumber,
-        minutes: Math.ceil((good + defect) * step.minutesPerPiece),
+        process: step.name,
         machine: machines[lotIndex % machines.length],
+        pieces: good + defect,
+        minutesPerPiece: step.minutesPerPiece,
         date: workdayBefore(lot.arrivedOn, lot.stepIndex - stepIndex),
         good,
         defect,
@@ -160,9 +167,10 @@ export function sampleActuals(
     .sort((a, b) => a.date.localeCompare(b.date) || a.lotIndex - b.lotIndex)
     .map((run) => {
       const before = machines.get(run.machine.id)
-      const setup = setupMinutes(data, run.machine, before?.partNumber ?? null, run.partNumber)
+      const setup = setupMinutes(data, run.machine, run.process, before?.partNumber ?? null, run.partNumber)
       const start = Math.min((before?.date === run.date ? before.free : 8 * 60) + setup, 17 * 60)
-      const end = Math.min(start + run.minutes, 17 * 60)
+      const minutes = Math.ceil((run.pieces * run.minutesPerPiece) / (run.machine.speed ?? 1) - 1e-9)
+      const end = Math.min(start + minutes, 17 * 60)
       machines.set(run.machine.id, { date: run.date, free: end, partNumber: run.partNumber })
       return { run, actual: { lotId: run.lotId, stepIndex: run.stepIndex, equipmentId: run.machine.id, start: `${run.date}T${clock(start)}`, end: `${run.date}T${clock(end)}`, good: run.good, defect: run.defect } }
     })

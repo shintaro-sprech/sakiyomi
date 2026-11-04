@@ -153,6 +153,14 @@ describe('executeTool', () => {
     expect(crew?.days.find((day) => day.date === '2026-11-05')?.people).toBe(1)
   })
 
+  it('tells Claude which processes each machine takes and how fast it runs', () => {
+    const equipment = describeSituation(state).equipment
+    const machine = (id: string) => equipment.find((item) => item.id === id)
+
+    expect(machine('MC-1')).toMatchObject({ processes: ['切削', 'タップ'], speed: 1 })
+    expect(machine('BND-1')).toMatchObject({ processes: ['曲げ'], speed: 1.2 })
+  })
+
   it('adds the event only once across decisions', () => {
     const outcome = executeTool(
       TOOL_NAMES.presentOptions,

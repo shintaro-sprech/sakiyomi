@@ -250,7 +250,7 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
                     onClick={() => toggle({ kind: 'equipment', id: equipment.id })}
                   >
                     <strong>{equipment.name}</strong>
-                    <span>{stopped ? '停止中' : equipment.process}</span>
+                    <span>{stopped ? '停止中' : equipment.processes.join('・')}</span>
                     {equipment.lastPart && (
                       <span className="gantt-last">
                         <VisuallyHidden>直前の加工</VisuallyHidden>
@@ -318,7 +318,8 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
                         {setupWidth > 0 && <span className="bar-setup-part" style={{ width: setupWidth }} />}
                         <span className="bar-text">
                           <span className="bar-lot">{lotLabel(operation)}</span>
-                          <span>{detail}</span>
+                          {/* On a machine with several processes, bars of one lot differ by process. */}
+                          <span>{equipment.processes.length > 1 ? `${operation.stepName}・${detail}` : detail}</span>
                         </span>
                       </button>
                       </Tooltip>
@@ -558,13 +559,15 @@ function EquipmentSchedule({
   const first = operations[0]?.startAt
   const last = operations.at(-1)?.endAt
   const span = first && last ? `${shortDate(first.slice(0, 10))}〜${shortDate(last.slice(0, 10))}` : ''
+  // A machine with several processes says which one each run is.
+  const multi = equipment.processes.length > 1
 
   return (
     <Panel
       focusPending={focusPending}
       onFocused={onFocused}
       title={`${equipment.name} の予定`}
-      summary={`${equipment.process}　${pieces}個 / ${lots}Lot　稼働 ${Math.round(hours * 10) / 10}時間（うち段取り ${setups.length}回・${setupMinutes}分）　${span}`}
+      summary={`${equipment.processes.join('・')}${speedLabel(equipment)}　${pieces}個 / ${lots}Lot　稼働 ${Math.round(hours * 10) / 10}時間（うち段取り ${setups.length}回・${setupMinutes}分）　${span}`}
       onClose={onClose}
     >
       <Table.ScrollContainer minWidth={900}>
@@ -572,6 +575,7 @@ function EquipmentSchedule({
           <Table.Thead>
             <Table.Tr>
               <Table.Th>開始 〜 終了</Table.Th>
+              {multi && <Table.Th>工程</Table.Th>}
               <Table.Th>Lot</Table.Th>
               <Table.Th>注番</Table.Th>
               <Table.Th>型番・形状</Table.Th>
@@ -590,6 +594,7 @@ function EquipmentSchedule({
                     直前の加工
                   </Group>
                 </Table.Th>
+                {multi && <Table.Td>—</Table.Td>}
                 <Table.Td>—</Table.Td>
                 <Table.Td>—</Table.Td>
                 <Table.Td>{partLabel(equipment.lastPart)}</Table.Td>
@@ -604,6 +609,7 @@ function EquipmentSchedule({
                 <Table.Th scope="row" style={{ whiteSpace: 'nowrap' }}>
                   {shortDateTime(operation.startAt)} 〜 {shortDateTime(operation.endAt)}
                 </Table.Th>
+                {multi && <Table.Td>{operation.stepName}</Table.Td>}
                 <Table.Td>
                   <Anchor component="button" type="button" size="sm" onClick={() => onOpenLot(operation)}>
                     {lotLabel(operation)}
@@ -624,6 +630,11 @@ function EquipmentSchedule({
       </Table.ScrollContainer>
     </Panel>
   )
+}
+
+// The machine's speed against the route, said only when it is not the route's own.
+function speedLabel(equipment: Equipment): string {
+  return equipment.speed && equipment.speed !== 1 ? `（${equipment.speed}倍速）` : ''
 }
 
 function Panel({

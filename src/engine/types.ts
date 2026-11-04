@@ -9,11 +9,15 @@ export type RouteStep = {
 // Process route for each part number, in the order the work flows.
 export type Routes = Record<string, RouteStep[]>
 
-// A machine or work station. It runs the steps whose name matches process.
+// A machine or work station. It runs the steps whose name is one of its processes;
+// a multi-tasking machine has more than one.
 export type Equipment = {
   id: string
   name: string
-  process: string
+  processes: string[]
+  // How fast it runs against the route's minutes per piece: 1.25 takes 1/1.25 of the time.
+  // Left out for 1.
+  speed?: number
   // Used when the part number changes and no setup rule covers the two shapes.
   setupMinutes: number
   // Running cost per working hour, in yen: what running the machine uses up, such as

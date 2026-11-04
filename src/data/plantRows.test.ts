@@ -34,6 +34,46 @@ describe('plant rows', () => {
     expect(data?.equipment.find((item) => item.id === 'MC-1')?.hourlyCost).toBe(1200)
   })
 
+  it('writes the processes of a multi-tasking machine in one cell, and the speed of each machine', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    const row = (id: string) => rows[SHEETS.equipment].find((item) => item[COLUMNS.equipment.id] === id)!
+
+    expect(row('MC-1')[COLUMNS.equipment.processes]).toBe('切削、タップ')
+    expect(row('BND-1')[COLUMNS.equipment.speed]).toBe(1.2)
+    expect(row('WLD-1')[COLUMNS.equipment.speed]).toBe(1)
+  })
+
+  it('reads a workbook made before machines had a speed', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    rows[SHEETS.equipment] = rows[SHEETS.equipment].map(({ [COLUMNS.equipment.speed]: _speed, ...row }) => row)
+    const { data, errors } = parsePlantRows(rows)
+
+    expect(errors).toEqual([])
+    expect(data?.equipment.every((item) => item.speed === undefined)).toBe(true)
+  })
+
+  it('refuses a speed written as a percentage', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    const welder = rows[SHEETS.equipment].findIndex((row) => row[COLUMNS.equipment.id] === 'WLD-2')
+    rows[SHEETS.equipment][welder][COLUMNS.equipment.speed] = 120
+    const { errors } = parsePlantRows(rows)
+
+    expect(errors).toContain(
+      `設備の${welder + 2}行目：速さは、工程表のとおりを1として、0.1以上10以下の数にしてください（2割速いなら1.2）`,
+    )
+  })
+
+  it('refuses a machine whose processes belong to two crews', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    const machining = rows[SHEETS.equipment].findIndex((row) => row[COLUMNS.equipment.id] === 'MC-1')
+    rows[SHEETS.equipment][machining][COLUMNS.equipment.processes] = '切削、タップ、検査'
+    const { errors } = parsePlantRows(rows)
+
+    expect(errors).toContain(
+      `設備の${machining + 2}行目：担当工程が、班「機械班」と「仕上げ班」に分かれています。1台の設備の工程は、同じ班に入れてください`,
+    )
+  })
+
   it('refuses a last part the equipment could not have run', () => {
     const rows = toPlantRows(createSampleData('2026-11-03'))
     const bending = rows[SHEETS.equipment].findIndex((row) => row[COLUMNS.equipment.id] === 'BND-1')

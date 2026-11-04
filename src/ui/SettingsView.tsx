@@ -81,6 +81,18 @@ export function SettingsView({ app }: { app: AppState }) {
     })
   }
 
+  // 1 is the route's minutes per piece, and is saved as no speed at all.
+  const setSpeed = (id: string, value: number) => {
+    app.updateData({
+      ...data,
+      equipment: data.equipment.map((item) => {
+        if (item.id !== id) return item
+        const { speed: _previous, ...rest } = item
+        return value === 1 ? rest : { ...rest, speed: value }
+      }),
+    })
+  }
+
   const setLastPart = (id: string, lastPart: string) => {
     app.updateData({
       ...data,
@@ -90,10 +102,10 @@ export function SettingsView({ app }: { app: AppState }) {
     })
   }
   // The parts whose route passes the equipment's process: the only ones it can have run.
-  const lastPartOptions = (process: string) => [
+  const lastPartOptions = (processes: string[]) => [
     { value: NO_LAST_PART, label: 'なし' },
     ...data.parts
-      .filter((part) => data.routes[part.partNumber]?.some((step) => step.name === process))
+      .filter((part) => data.routes[part.partNumber]?.some((step) => processes.includes(step.name)))
       .map((part) => ({ value: part.partNumber, label: `${part.partNumber}　${part.shape}` })),
   ]
 
@@ -336,14 +348,15 @@ export function SettingsView({ app }: { app: AppState }) {
           設備
         </Title>
         <Paper withBorder>
-          <Table.ScrollContainer minWidth={760}>
+          <Table.ScrollContainer minWidth={840}>
             <Table verticalSpacing="xs" horizontalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>
-                  <Table.Th>設備</Table.Th>
+                  <Table.Th className="sticky-col">設備</Table.Th>
                   <Table.Th>担当工程</Table.Th>
-                  <Table.Th w={130}>段取り</Table.Th>
-                  <Table.Th w={130}>1時間の運転費</Table.Th>
+                  <Table.Th w={110}>速さ</Table.Th>
+                  <Table.Th w={110}>段取り</Table.Th>
+                  <Table.Th w={120}>1時間の運転費</Table.Th>
                   <Table.Th w={160}>直前の型番</Table.Th>
                   <Table.Th w={80}>止める</Table.Th>
                 </Table.Tr>
@@ -351,8 +364,23 @@ export function SettingsView({ app }: { app: AppState }) {
               <Table.Tbody>
                 {data.equipment.map((equipment) => (
                   <Table.Tr key={equipment.id}>
-                    <Table.Td>{equipment.name}</Table.Td>
-                    <Table.Td>{equipment.process}</Table.Td>
+                    <Table.Td className="sticky-col">{equipment.name}</Table.Td>
+                    <Table.Td>{equipment.processes.join('・')}</Table.Td>
+                    <Table.Td>
+                      <NumberField
+                        size="xs"
+                        suffix=" 倍速"
+                        allowDecimal
+                        decimalScale={2}
+                        min={0.1}
+                        max={10}
+                        step={0.05}
+                        clampBehavior="blur"
+                        value={equipment.speed ?? 1}
+                        onCommit={(value) => setSpeed(equipment.id, value)}
+                        aria-label={`${equipment.name}の速さ`}
+                      />
+                    </Table.Td>
                     <Table.Td>
                       <NumberField
                         size="xs"
@@ -380,7 +408,7 @@ export function SettingsView({ app }: { app: AppState }) {
                     <Table.Td>
                       <Select
                         size="xs"
-                        data={lastPartOptions(equipment.process)}
+                        data={lastPartOptions(equipment.processes)}
                         value={equipment.lastPart || NO_LAST_PART}
                         onChange={(value) => setLastPart(equipment.id, value ?? NO_LAST_PART)}
                         allowDeselect={false}

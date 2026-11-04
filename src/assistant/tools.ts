@@ -140,7 +140,9 @@ export function describeSituation(state: PlanState) {
       name: crew.name,
       processes: crew.processes,
       usualPeople: crew.people,
-      equipment: data.equipment.filter((equipment) => crew.processes.includes(equipment.process)).map((equipment) => equipment.id),
+      equipment: data.equipment
+        .filter((equipment) => equipment.processes.some((process) => crew.processes.includes(process)))
+        .map((equipment) => equipment.id),
       days: result.crewDays
         .filter((day) => day.crew === crew.name)
         .map((day) => ({ date: day.date, people: day.people, mostRunningAtOnce: day.peak })),
@@ -150,7 +152,8 @@ export function describeSituation(state: PlanState) {
       return {
         id: equipment.id,
         name: equipment.name,
-        process: equipment.process,
+        processes: equipment.processes,
+        speed: equipment.speed ?? 1,
         defaultSetupMinutes: equipment.setupMinutes,
         runningCostPerHour: equipment.hourlyCost,
         lastPart: equipment.lastPart || null,

@@ -87,6 +87,7 @@ describe('summarizeWip', () => {
       '曲げ',
       '溶接',
       '切削',
+      'タップ',
       '熱処理',
       '研削',
       '穴あけ',
@@ -131,7 +132,20 @@ describe('summarizeWip', () => {
     const noCrews = { ...data, crews: [] }
     const order = summarizeWip(noCrews, orderDemands(noCrews, today)).map((column) => column.process ?? column.kind)
 
-    expect(order).toEqual(['unreleased', '切断', '切削', '曲げ', '熱処理', '研削', '穴あけ', '溶接', '検査', '梱包', 'finished'])
+    expect(order).toEqual([
+      'unreleased',
+      '切断',
+      '切削',
+      '曲げ',
+      '熱処理',
+      '穴あけ',
+      'タップ',
+      '溶接',
+      '検査',
+      '研削',
+      '梱包',
+      'finished',
+    ])
   })
 })
 
