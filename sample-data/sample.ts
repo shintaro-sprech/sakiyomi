@@ -8,6 +8,8 @@ import { addDays, weekday } from '../src/engine/dates'
 import { lastDayOfMonth } from '../src/engine/demand'
 import { setupMinutes } from '../src/engine/setup'
 import type { Actual, ChannelStock, CustomerOrder, IsoDate, Order, PlantData } from '../src/engine/types'
+import { sampleDeals } from './deals'
+import { sampleOrderHistory } from './orderHistory'
 
 export function createSampleData(today: IsoDate): PlantData {
   const day = (offset: number) => addDays(today, offset)
@@ -107,6 +109,8 @@ export function createSampleData(today: IsoDate): PlantData {
     actuals: sampleActuals(data),
     customerOrders: sampleCustomerOrders(data.orders),
     channelStocks: sampleChannelStocks(today),
+    ...sampleDeals(today),
+    orderHistory: sampleOrderHistory(data.parts, today),
   }
 }
 

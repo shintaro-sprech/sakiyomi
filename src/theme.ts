@@ -124,8 +124,11 @@ export const cssVariablesResolver: CSSVariablesResolver = () => ({
     '--mantine-color-anchor': 'var(--mantine-color-blue-text)',
     '--mantine-color-teal-text': 'var(--mantine-color-teal-7)',
     '--mantine-color-orange-text': 'var(--mantine-color-orange-7)',
+    // The required mark and field errors, at 4.5:1 or more as text.
+    '--mantine-color-error': 'var(--mantine-color-red-9)',
   },
   dark: {
     '--mantine-color-anchor': 'var(--mantine-color-blue-text)',
+    '--mantine-color-error': 'var(--mantine-color-red-4)',
   },
 })

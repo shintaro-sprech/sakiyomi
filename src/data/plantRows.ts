@@ -4,9 +4,13 @@ import type {
   ChannelStock,
   Crew,
   CustomerOrder,
+  Deal,
+  DealChange,
+  DealField,
   Equipment,
   IsoDate,
   Lot,
+  MonthlyOrder,
   Order,
   Part,
   PlantData,
@@ -27,6 +31,9 @@ export const SHEETS = {
   actuals: '実績',
   customerOrders: '受注',
   channelStocks: '販売在庫',
+  deals: '商談',
+  dealChanges: '商談の履歴',
+  orderHistory: '月ごとの受注',
 } as const
 
 export const COLUMNS = {
@@ -81,7 +88,42 @@ export const COLUMNS = {
     monthlySales: '月間の実売',
     reorderDays: '注文の目安の日数',
   },
+  deals: {
+    id: '商談ID',
+    name: '商談名',
+    customer: '取引先',
+    owner: '担当者',
+    partNumber: '型番',
+    stage: 'ステージ',
+    closeDate: '受注予定日',
+    monthlyQuantity: '量産数量（月）',
+    customerKind: '取引先の種別',
+    source: '引き合いの経路',
+    use: '用途',
+    note: 'メモ',
+    createdOn: '登録日',
+    stageChangedOn: 'ステージを変えた日',
+    postponeCount: '延期回数',
+  },
+  dealChanges: { dealId: '商談ID', field: '項目', from: '変える前', to: '変えた後', at: '日時' },
+  orderHistory: { month: '年月', partNumber: '型番', site: '拠点', ordered: '受注数量', shipped: '出荷数量' },
 } as const
+
+// How each kept field of a deal is named in the 項目 column of the history sheet.
+const DEAL_FIELD_NAMES: Record<DealField | 'created', string> = {
+  created: '登録',
+  name: COLUMNS.deals.name,
+  customer: COLUMNS.deals.customer,
+  owner: COLUMNS.deals.owner,
+  partNumber: COLUMNS.deals.partNumber,
+  stage: COLUMNS.deals.stage,
+  closeDate: COLUMNS.deals.closeDate,
+  monthlyQuantity: COLUMNS.deals.monthlyQuantity,
+  customerKind: COLUMNS.deals.customerKind,
+  source: COLUMNS.deals.source,
+  use: COLUMNS.deals.use,
+  note: COLUMNS.deals.note,
+}
 
 // How a customer order is sold, as written in the 販路 column.
 const CHANNELS = { direct: '直販', distributor: '代理店' } as const
@@ -99,7 +141,7 @@ export type Row = Record<string, unknown>
 export type SheetRows = Record<string, Row[]>
 
 export function toPlantRows(data: PlantData): SheetRows {
-  const { parts, routes, equipment, setupRules, crews, attendance, orders, lots, actuals, customerOrders, channelStocks } =
+  const { parts, routes, equipment, setupRules, crews, attendance, orders, lots, actuals, customerOrders, channelStocks, deals, dealChanges, orderHistory } =
     COLUMNS
   return {
     [SHEETS.parts]: data.parts.map((part) => ({
@@ -185,6 +227,37 @@ export function toPlantRows(data: PlantData): SheetRows {
       [channelStocks.stock]: entry.stock,
       [channelStocks.monthlySales]: entry.monthlySales,
       [channelStocks.reorderDays]: entry.reorderDays ?? '',
+    })),
+    [SHEETS.deals]: (data.deals ?? []).map((deal) => ({
+      [deals.id]: deal.id,
+      [deals.name]: deal.name,
+      [deals.customer]: deal.customer,
+      [deals.owner]: deal.owner,
+      [deals.partNumber]: deal.partNumber,
+      [deals.stage]: deal.stage,
+      [deals.closeDate]: deal.closeDate,
+      [deals.monthlyQuantity]: deal.monthlyQuantity,
+      [deals.customerKind]: deal.customerKind,
+      [deals.source]: deal.source,
+      [deals.use]: deal.use,
+      [deals.note]: deal.note,
+      [deals.createdOn]: deal.createdOn,
+      [deals.stageChangedOn]: deal.stageChangedOn,
+      [deals.postponeCount]: deal.postponeCount,
+    })),
+    [SHEETS.dealChanges]: (data.dealChanges ?? []).map((change) => ({
+      [dealChanges.dealId]: change.dealId,
+      [dealChanges.field]: DEAL_FIELD_NAMES[change.field],
+      [dealChanges.from]: change.from,
+      [dealChanges.to]: change.to,
+      [dealChanges.at]: change.at.replace('T', ' '),
+    })),
+    [SHEETS.orderHistory]: (data.orderHistory ?? []).map((entry) => ({
+      [orderHistory.month]: entry.month,
+      [orderHistory.partNumber]: entry.partNumber,
+      [orderHistory.site]: entry.site,
+      [orderHistory.ordered]: entry.ordered,
+      [orderHistory.shipped]: entry.shipped,
     })),
   }
 }
@@ -495,6 +568,30 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
     })
   })
 
+  const { deals, dealChanges } = parseDeals(optionalRowsOf(SHEETS.deals), optionalRowsOf(SHEETS.dealChanges), at, errors)
+
+  // Orders and shipments by month. A month is written 2026-11, 2026/11 or as a date in it;
+  // an empty plant is the plant itself.
+  const orderHistory: MonthlyOrder[] = []
+  optionalRowsOf(SHEETS.orderHistory).forEach((row, index) => {
+    const c = COLUMNS.orderHistory
+    const where = at(SHEETS.orderHistory, index)
+    const month = yearMonthOf(row[c.month])
+    const partNumber = text(row[c.partNumber])
+    const site = text(row[c.site]) || '自社'
+    const ordered = number(row[c.ordered])
+    const shippedCell = text(row[c.shipped])
+    const shipped = shippedCell === '' ? 0 : number(row[c.shipped])
+    if (!month) return errors.push(`${where}：年月を 2026-11 の形で入れてください`)
+    if (!partNumber) return errors.push(`${where}：型番を入れてください`)
+    if (ordered === null || ordered < 0) return errors.push(`${where}：受注数量は0以上の数にしてください`)
+    if (shipped === null || shipped < 0) return errors.push(`${where}：出荷数量は0以上の数か空欄にしてください`)
+    if (orderHistory.some((entry) => entry.month === month && entry.partNumber === partNumber && entry.site === site)) {
+      return errors.push(`${where}：${month}の型番「${partNumber}」（${site}）が重複しています`)
+    }
+    orderHistory.push({ month, partNumber, site, ordered, shipped })
+  })
+
   for (const order of orders) {
     const released = lots.filter((lot) => lot.orderId === order.id).reduce((total, lot) => total + lot.quantity, 0)
     if (released > order.quantity) {
@@ -511,9 +608,107 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
   return errors.length > 0
     ? { data: null, errors }
     : {
-        data: { parts, routes, equipment, setupRules, crews, attendance, orders, lots, actuals, customerOrders, channelStocks },
+        data: { parts, routes, equipment, setupRules, crews, attendance, orders, lots, actuals, customerOrders, channelStocks, deals, dealChanges, orderHistory },
         errors,
       }
+}
+
+// Deals and their history. A deal is read as written so that a missing part number or a
+// quantity of 0 shows as a defect in the app; only what cannot be read at all is refused.
+// The day the stage changed and the count of postponements may be left empty and are then
+// taken from the history.
+function parseDeals(
+  dealRows: Row[],
+  changeRows: Row[],
+  at: (sheet: string, index: number) => string,
+  errors: string[],
+): { deals: Deal[]; dealChanges: DealChange[] } {
+  const dealChanges: DealChange[] = []
+  const fields = Object.entries(DEAL_FIELD_NAMES) as [DealField | 'created', string][]
+  const ids = new Set(dealRows.map((row) => text(row[COLUMNS.deals.id])))
+  changeRows.forEach((row, index) => {
+    const c = COLUMNS.dealChanges
+    const where = at(SHEETS.dealChanges, index)
+    const dealId = text(row[c.dealId])
+    const field = fields.find(([, name]) => name === text(row[c.field]))?.[0]
+    const when = dateTime(row[c.at])
+    const from = cellText(row[c.from])
+    const to = cellText(row[c.to])
+    if (!ids.has(dealId)) return errors.push(`${where}：商談ID「${dealId}」が商談にありません`)
+    if (!field) return errors.push(`${where}：項目「${text(row[c.field])}」は使えません`)
+    if (!when) return errors.push(`${where}：日時を 2026-11-12 09:30 の形で入れてください`)
+    if (field === 'closeDate' && (!date(row[c.from]) || !date(row[c.to]))) {
+      return errors.push(`${where}：受注予定日の変える前と変えた後は日付にしてください`)
+    }
+    if (field === 'monthlyQuantity' && (number(row[c.from]) === null || number(row[c.to]) === null)) {
+      return errors.push(`${where}：量産数量（月）の変える前と変えた後は数にしてください`)
+    }
+    dealChanges.push({
+      dealId,
+      field,
+      from: field === 'closeDate' ? (date(row[c.from]) ?? '') : from,
+      to: field === 'closeDate' ? (date(row[c.to]) ?? '') : to,
+      at: when,
+    })
+  })
+  dealChanges.sort((a, b) => a.at.localeCompare(b.at))
+
+  const deals: Deal[] = []
+  dealRows.forEach((row, index) => {
+    const c = COLUMNS.deals
+    const where = at(SHEETS.deals, index)
+    const id = text(row[c.id])
+    const closeDate = date(row[c.closeDate])
+    const createdOn = date(row[c.createdOn])
+    const monthlyQuantity = number(row[c.monthlyQuantity])
+    const own = dealChanges.filter((change) => change.dealId === id)
+    const stageCell = text(row[c.stageChangedOn])
+    const stageChangedOn = stageCell === '' ? (own.filter((change) => change.field === 'stage').at(-1)?.at.slice(0, 10) ?? createdOn) : date(row[c.stageChangedOn])
+    const postponeCell = text(row[c.postponeCount])
+    const postponeCount =
+      postponeCell === '' ? own.filter((change) => change.field === 'closeDate' && change.to > change.from).length : number(row[c.postponeCount])
+    if (!id) return errors.push(`${where}：商談IDを入れてください`)
+    if (deals.some((deal) => deal.id === id)) return errors.push(`${where}：商談ID「${id}」が重複しています`)
+    if (!closeDate) return errors.push(`${where}：受注予定日を日付で入れてください`)
+    if (!createdOn) return errors.push(`${where}：登録日を日付で入れてください`)
+    if (monthlyQuantity === null) return errors.push(`${where}：量産数量（月）を数で入れてください`)
+    if (!stageChangedOn) return errors.push(`${where}：ステージを変えた日は日付か空欄にしてください`)
+    if (postponeCount === null || !Number.isInteger(postponeCount) || postponeCount < 0) {
+      return errors.push(`${where}：延期回数は0以上の整数か空欄にしてください`)
+    }
+    deals.push({
+      id,
+      name: text(row[c.name]),
+      customer: text(row[c.customer]),
+      owner: text(row[c.owner]),
+      partNumber: text(row[c.partNumber]),
+      stage: text(row[c.stage]),
+      closeDate,
+      monthlyQuantity,
+      customerKind: text(row[c.customerKind]),
+      source: text(row[c.source]),
+      use: text(row[c.use]),
+      note: text(row[c.note]),
+      createdOn,
+      stageChangedOn,
+      postponeCount,
+    })
+  })
+  return { deals, dealChanges }
+}
+
+// A month written 2026-11 or 2026/11, or any date in it, as YYYY-MM.
+function yearMonthOf(value: unknown): string | null {
+  const day = date(value)
+  if (day) return day.slice(0, 7)
+  const match = /^(\d{4})[-/](\d{1,2})$/.exec(text(value))
+  if (!match || Number(match[2]) < 1 || Number(match[2]) > 12) return null
+  return `${match[1]}-${match[2].padStart(2, '0')}`
+}
+
+// A cell as text, with a date cell written as 2026-11-12.
+function cellText(value: unknown): string {
+  return value instanceof Date ? (date(value) ?? '') : text(value)
 }
 
 // Processes written in one cell, as 切断、曲げ or 切断,曲げ.

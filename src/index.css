@@ -98,8 +98,9 @@
 }
 
 /* The chosen tab, menu item and segment are filled with the primary color, slate or ivory
-   by scheme; their text takes the matching contrast color rather than Mantine's fixed white. */
-.mantine-Tabs-tab[data-active],
+   by scheme; their text takes the matching contrast color rather than Mantine's fixed white.
+   Underlined tabs are not filled and keep their own color. */
+.mantine-Tabs-tab[data-active][data-variant='pills'],
 .mantine-NavLink-root[data-active],
 .mantine-SegmentedControl-label[data-active] {
   color: var(--mantine-primary-color-contrast);
@@ -2021,4 +2022,124 @@ tr.is-before > * {
 
 .factory-label-more {
   color: var(--sk-text-dimmed);
+}
+
+/* Deals: a salesperson's line under a part, and bars for the win model's scores. */
+.sub-row td {
+  background: var(--sk-muted-surface);
+}
+
+.bar-track {
+  position: relative;
+  flex: 1;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--sk-muted-surface);
+  border: 1px solid var(--sk-border);
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 5px;
+  background: var(--sk-wip-fill);
+}
+
+/* The chance the model gave, against the share won drawn by the bar. */
+.bar-mark {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 14px;
+  margin-left: -1px;
+  background: var(--mantine-color-text);
+}
+
+/* Orders of a part month by month: one line, solid for what was ordered, dashed for the forecast. */
+/* The line stands at 3:1 or more against the card in both schemes. */
+.orders-chart {
+  --sk-chart-line: var(--mantine-color-blue-filled);
+  margin: 4px 0 0;
+}
+
+:root[data-mantine-color-scheme='dark'] .orders-chart {
+  --sk-chart-line: var(--mantine-color-blue-4);
+}
+
+.chart-grid {
+  stroke: var(--sk-border);
+  stroke-width: 1;
+}
+
+.chart-axis,
+.chart-label {
+  font-size: 12px;
+  fill: var(--sk-text-dimmed);
+}
+
+.chart-label {
+  fill: var(--mantine-color-text);
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--sk-chart-line);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-line-forecast {
+  stroke-dasharray: 5 4;
+}
+
+.chart-cross {
+  stroke: var(--sk-text-dimmed);
+  stroke-width: 1;
+}
+
+.chart-dot {
+  fill: var(--sk-chart-line);
+  stroke: var(--mantine-color-body);
+  stroke-width: 2;
+}
+
+.chart-readout {
+  min-height: 1.4em;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-text);
+}
+
+/* A part's lines in the handoff table share one group, set off from the next part. */
+.handoff-part {
+  border-top: 1px solid var(--sk-border);
+}
+
+/* Won and lost side by side in one track: won in the fill color, lost in a gray after it. */
+.bar-split {
+  display: flex;
+  gap: 2px;
+}
+
+.bar-split .bar-fill {
+  border-radius: 0;
+}
+
+.bar-lost {
+  background: var(--sk-unstarted);
+}
+
+/* Tabs inside a screen stay on one line and scroll sideways on a phone. */
+.sub-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.sub-tabs .mantine-Tabs-tab {
+  flex-shrink: 0;
+}
+
+/* A short header that would read wrong broken in the middle of a word. */
+.nowrap {
+  white-space: nowrap;
 }

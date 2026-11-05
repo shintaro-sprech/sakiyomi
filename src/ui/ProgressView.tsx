@@ -220,6 +220,7 @@ export function ProgressView({ plan, today, warningDays, focus }: Props) {
 
       <SegmentedControl
         w="fit-content"
+        color="primary"
         value={mode}
         onChange={(value) => switchMode(value as 'order' | 'part')}
         data={[

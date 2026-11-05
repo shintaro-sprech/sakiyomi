@@ -1,4 +1,7 @@
 import { compareSchedules, type ScheduleComparison } from '../engine/compare'
+import { dealDemand } from '../engine/dealDemand'
+import { dealProblems, dealStatus } from '../engine/deals'
+import { forecastDemand } from '../engine/forecast'
 import { weekday } from '../engine/dates'
 import { orderDemands, replenishments, type Replenishment } from '../engine/demand'
 import { monthlyOutlook, unusedChanges, type MonthlyOutlook } from '../engine/economics'
@@ -8,6 +11,7 @@ import { summarizeProgress } from '../engine/progress'
 import { channelOutlook, deliveriesOf } from '../engine/records'
 import { ChangeError, describeChange, parseChange, sameChange, type Change } from '../engine/scenario'
 import type { IsoDate, PlantData } from '../engine/types'
+import { predictOpenDeals, trainWinModel } from '../engine/winModel'
 import { TOOL_NAMES } from './toolSchemas'
 
 // The effect of a set of changes on the current plan, computed by the engine.
@@ -210,6 +214,8 @@ export function describeSituation(state: PlanState) {
       }
     }),
     unscheduled: result.unscheduled,
+    deals: describeDeals(data, state.today),
+    demandForecast: describeForecast(data),
     distributorStock: channelOutlook(data, state.today).map(
       ({ customer, partNumber, asOf, stock, monthlySales, stockNow, onOrder, daysLeft, orderOn, orderQuantity }) => ({
         customer,
@@ -224,6 +230,57 @@ export function describeSituation(state: PlanState) {
         orderQuantity,
       }),
     ),
+  }
+}
+
+const round3 = (value: number) => Math.round(value * 1000) / 1000
+
+// The open deals with each one's chance of being won, and what the ones at 80% or more add
+// up to by part and month. Set beside the plan only; none is in the plan's orders.
+function describeDeals(data: PlantData, today: IsoDate) {
+  const deals = data.deals ?? []
+  const changes = data.dealChanges ?? []
+  const training = trainWinModel(deals, changes, today)
+  const chances = training.ok ? predictOpenDeals(training.model, deals, changes, today) : new Map<string, number>()
+  const demand = dealDemand(deals, chances, data.parts, today)
+  const counted = new Set(demand.counted.map((entry) => entry.deal.id))
+  return {
+    chanceAvailable: training.ok,
+    threshold: demand.options.threshold,
+    periodEnd: demand.periodEnd,
+    open: deals
+      .filter((deal) => dealStatus(deal.stage) === 'open')
+      .map((deal) => ({
+        id: deal.id,
+        name: deal.name,
+        customer: deal.customer,
+        owner: deal.owner,
+        partNumber: deal.partNumber || null,
+        stage: deal.stage,
+        closeDate: deal.closeDate,
+        monthlyQuantity: deal.monthlyQuantity,
+        postponeCount: deal.postponeCount,
+        chance: chances.has(deal.id) ? round3(chances.get(deal.id)!) : null,
+        counted: counted.has(deal.id),
+        problems: dealProblems(deal, data.parts, today).map((problem) => problem.message),
+      })),
+    byMonth: demand.byMonth.map((entry) => ({ ...entry, expected: round1(entry.expected) })),
+  }
+}
+
+// What past orders forecast for the coming three months, part by part.
+function describeForecast(data: PlantData) {
+  const forecast = forecastDemand(data.orderHistory ?? [], 3)
+  return {
+    lastMonth: forecast.lastMonth || null,
+    method: forecast.reason,
+    series: forecast.series.map((entry) => ({
+      partNumber: entry.partNumber,
+      site: entry.site,
+      method: entry.method,
+      lastThreeMonths: entry.history.slice(-3).map((month) => ({ month: month.month, ordered: month.ordered })),
+      forecast: entry.forecast.map((month) => ({ month: month.month, quantity: round1(month.quantity) })),
+    })),
   }
 }
 

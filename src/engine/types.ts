@@ -110,6 +110,80 @@ export type PlantData = {
   actuals?: Actual[]
   customerOrders?: CustomerOrder[]
   channelStocks?: ChannelStock[]
+  // Sales opportunities and how each one changed. The plan does not read them either;
+  // they are set beside it as demand that may come.
+  deals?: Deal[]
+  dealChanges?: DealChange[]
+  // Pieces ordered and shipped per part, plant and month, for the demand forecast.
+  orderHistory?: MonthlyOrder[]
+}
+
+// Pieces customers ordered and pieces shipped of a part in one calendar month, at one plant.
+// A company with several plants keeps one row per plant; one plant writes the same name.
+export type MonthlyOrder = {
+  // YYYY-MM
+  month: string
+  partNumber: string
+  site: string
+  ordered: number
+  shipped: number
+}
+
+// A sales opportunity (商談): a customer that may order a part in volume, as the salesperson
+// keeps it. Once won, the customer orders about monthlyQuantity pieces a month.
+export type Deal = {
+  id: string
+  name: string
+  customer: string
+  // The salesperson who has the deal.
+  owner: string
+  // The part the customer would order. Empty while it is not decided.
+  partNumber: string
+  // One of DEAL_STAGES in deals.ts.
+  stage: string
+  // The day the customer is expected to decide.
+  closeDate: IsoDate
+  // Pieces a month once the customer orders in volume.
+  monthlyQuantity: number
+  // Whether the customer already buys from the plant: 既存 or 新規.
+  customerKind: string
+  // How the inquiry came in, such as 紹介 or 展示会.
+  source: string
+  // What the customer uses the part for.
+  use: string
+  // What the salesperson wrote about the deal.
+  note: string
+  createdOn: IsoDate
+  // The day the stage last changed.
+  stageChangedOn: IsoDate
+  // How many times the close date was moved later.
+  postponeCount: number
+}
+
+// The fields of a deal whose changes are kept.
+export type DealField =
+  | 'name'
+  | 'customer'
+  | 'owner'
+  | 'partNumber'
+  | 'stage'
+  | 'closeDate'
+  | 'monthlyQuantity'
+  | 'customerKind'
+  | 'source'
+  | 'use'
+  | 'note'
+
+// One change to a deal, kept so a deal can be seen as it stood on any past day. A new deal
+// has one row with field 'created'. Rows are only ever added.
+export type DealChange = {
+  dealId: string
+  field: DealField | 'created'
+  // Values as text; empty for none and on the created row.
+  from: string
+  to: string
+  // Local date and time, YYYY-MM-DDTHH:MM.
+  at: string
 }
 
 // One step a lot has already been through, as recorded on the shop floor.

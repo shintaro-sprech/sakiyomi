@@ -162,4 +162,37 @@ describe('plant rows', () => {
     expect(errors).toContain('注残の2行目：型番「Z-999」が工程表にありません')
     expect(errors.some((message) => message.startsWith('Lotの3行目'))).toBe(true)
   })
+
+  it('takes the day the stage changed and the postponements from the history when left empty', () => {
+    const data = createSampleData('2026-11-03')
+    const rows = toPlantRows(data)
+    const c = COLUMNS.deals
+    rows[SHEETS.deals] = rows[SHEETS.deals].map((row) => ({ ...row, [c.stageChangedOn]: '', [c.postponeCount]: '' }))
+
+    const { data: parsed, errors } = parsePlantRows(rows)
+
+    expect(errors).toEqual([])
+    expect(parsed?.deals).toEqual(data.deals)
+  })
+
+  it('reads a deal with no part number, so the app can show it as a defect, and refuses what it cannot read', () => {
+    const data = createSampleData('2026-11-03')
+    const rows = toPlantRows(data)
+    const c = COLUMNS.deals
+    const h = COLUMNS.dealChanges
+    rows[SHEETS.deals][0] = { ...rows[SHEETS.deals][0], [c.partNumber]: '', [c.monthlyQuantity]: 0 }
+    const blank = parsePlantRows(rows)
+    expect(blank.errors).toEqual([])
+    expect(blank.data?.deals?.[0]).toMatchObject({ partNumber: '', monthlyQuantity: 0 })
+
+    rows[SHEETS.deals][1] = { ...rows[SHEETS.deals][1], [c.closeDate]: '来月' }
+    rows[SHEETS.dealChanges][0] = { ...rows[SHEETS.dealChanges][0], [h.field]: '金額' }
+    rows[SHEETS.dealChanges][1] = { ...rows[SHEETS.dealChanges][1], [h.dealId]: 'S-9999' }
+
+    expect(parsePlantRows(rows).errors).toEqual([
+      '商談の履歴の2行目：項目「金額」は使えません',
+      '商談の履歴の3行目：商談ID「S-9999」が商談にありません',
+      '商談の3行目：受注予定日を日付で入れてください',
+    ])
+  })
 })

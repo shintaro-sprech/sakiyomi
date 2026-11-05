@@ -10,6 +10,23 @@ const today = '2026-11-03'
 const state: PlanState = { data: createSampleData(today), settings: createSampleSettings(), adopted: [], today }
 
 describe('executeTool', () => {
+  it('tells Claude the open deals with their chances, apart from the plan and from the forecast', () => {
+    const situation = describeSituation(state)
+    const { deals, demandForecast } = situation
+
+    expect(deals.chanceAvailable).toBe(true)
+    expect(deals.open.length).toBe(14)
+    expect(deals.open.every((deal) => deal.chance !== null && deal.chance > 0 && deal.chance < 1)).toBe(true)
+    expect(deals.open.find((deal) => deal.partNumber === null)?.problems).toEqual(['型番が入っていません'])
+    // Every month laid out comes from a deal counted at the threshold.
+    const countedParts = new Set(deals.open.filter((deal) => deal.counted).map((deal) => deal.partNumber))
+    expect(deals.byMonth.every((entry) => countedParts.has(entry.partNumber))).toBe(true)
+    expect(demandForecast.lastMonth).toBe('2026-10')
+    expect(demandForecast.series.map((entry) => entry.forecast.length)).toEqual([3, 3, 3, 3])
+    // The deals are not among the plan's orders.
+    expect(situation.orders.length).toBe(state.data.orders.length)
+  })
+
   it('describes the current plan for Claude', () => {
     const situation = describeSituation(state)
 

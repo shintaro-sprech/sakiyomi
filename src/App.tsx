@@ -18,9 +18,11 @@ import {
 import { useDisclosure, useMediaQuery, useReducedMotion } from '@mantine/hooks'
 import {
   IconAdjustmentsHorizontal,
+  IconBriefcase,
   IconBuildingFactory2,
   IconCalendarStats,
   IconChartBar,
+  IconChartLine,
   IconClipboardList,
   IconLayoutKanban,
   IconMessageCircle,
@@ -34,8 +36,13 @@ import type { Replenishment } from './engine/demand'
 import { releaseTiming, runPlan } from './engine/plan'
 import { ChangeError, describeChange, type Change } from './engine/scenario'
 import type { PlantData } from './engine/types'
+import { currentVersion, dealsVersion } from './engine/handoff'
+import { useDealInsights } from './state/dealInsights'
 import { useAppState } from './state/store'
 import { ChatPanel } from './ui/ChatPanel'
+import { nowAt } from './ui/clock'
+import { DealsView } from './ui/DealsView'
+import { DemandView } from './ui/DemandView'
 import { DecisionsView } from './ui/DecisionsView'
 import { GanttView } from './ui/GanttView'
 import { OutlookView } from './ui/OutlookView'
@@ -45,10 +52,12 @@ import { SettingsView } from './ui/SettingsView'
 // The floor in 3D loads three.js only when its tab opens.
 const FactoryView = lazy(() => import('./ui/FactoryView'))
 
-type Tab = 'outlook' | 'progress' | 'factory' | 'gantt' | 'decisions' | 'settings'
+type Tab = 'outlook' | 'deals' | 'demand' | 'progress' | 'factory' | 'gantt' | 'decisions' | 'settings'
 
 const TABS: { value: Tab; label: string; icon: ReactNode }[] = [
   { value: 'outlook', label: '今月の計画', icon: <IconCalendarStats size={16} /> },
+  { value: 'deals', label: '商談', icon: <IconBriefcase size={16} /> },
+  { value: 'demand', label: '需要予測', icon: <IconChartLine size={16} /> },
   { value: 'progress', label: '進捗', icon: <IconChartBar size={16} /> },
   { value: 'factory', label: '現場', icon: <IconBuildingFactory2 size={16} /> },
   { value: 'gantt', label: 'ガント', icon: <IconLayoutKanban size={16} /> },
@@ -63,6 +72,8 @@ function App() {
   const wide = useMediaQuery(`(min-width: ${theme.breakpoints.xl})`, true, { getInitialValueInEffect: false })
   const medium = useMediaQuery(`(min-width: ${theme.breakpoints.md})`, true, { getInitialValueInEffect: false })
   const [tab, setTab] = useState<Tab>('outlook')
+  // The smallest chance of a deal counted, chosen on the deals tab.
+  const [dealThreshold, setDealThreshold] = useState(0.8)
   // A lot the Gantt chart asked the progress tab to show, until another tab is picked.
   const [progressFocus, setProgressFocus] = useState<{ orderId: string; lotId: string } | null>(null)
   const [preview, setPreview] = useState<ProposedOption | null>(null)
@@ -72,10 +83,22 @@ function App() {
   const [navOpened, nav] = useDisclosure(false)
   const reduceMotion = useReducedMotion()
   const bannerRef = useRef<HTMLDivElement>(null)
+  const mainRef = useRef<HTMLElement>(null)
+  const burgerRef = useRef<HTMLButtonElement>(null)
   const focusBanner = useRef(false)
   const { setColorScheme } = useMantineColorScheme()
   const dark = useComputedColorScheme('light') === 'dark'
   const { planState, saved } = app
+  const insights = useDealInsights(saved.data, planState.today, dealThreshold)
+  // The deals' demand is handed to the plan once a day, and again that day when it changes.
+  const { saveHandoff } = app
+  const handoffs = saved.handoffs
+  useEffect(() => {
+    const current = currentVersion(handoffs ?? [], 'deals')
+    const version = dealsVersion(insights.handoffDemand, planState.today, nowAt())
+    if (current && current.baseDate === version.baseDate && JSON.stringify(current.rows) === JSON.stringify(version.rows)) return
+    saveHandoff(version)
+  }, [insights.handoffDemand, planState.today, handoffs, saveHandoff])
 
   const previewChanges = useMemo(
     () => (preview ? changesToApply(preview, planState.adopted).changes : []),
@@ -101,10 +124,11 @@ function App() {
     [planState, previewChanges, planned.previewFailed],
   )
 
-  // The menu only exists below md.
+  // The menu only exists below xl, where the tabs do not fit the header.
+  const closeNav = nav.close
   useEffect(() => {
-    if (medium) nav.close()
-  }, [medium, nav])
+    if (wide) closeNav()
+  }, [wide, closeNav])
 
   // After a phone preview closes the panel, the pressed button is gone; move focus to the banner.
   useEffect(() => {
@@ -117,7 +141,23 @@ function App() {
   function selectTab(value: Tab) {
     setTab(value)
     setProgressFocus(null)
+    // Picked from the menu, which closes under the focus: the screen's heading takes it (WCAG 2.4.3).
+    if (navOpened) {
+      nav.close()
+      requestAnimationFrame(() => {
+        const heading = mainRef.current?.querySelector<HTMLElement>('h2')
+        if (!heading) return
+        heading.tabIndex = -1
+        heading.focus()
+      })
+    }
+  }
+
+  // Escape closes the menu and puts focus back on the button that opened it.
+  function closeNavByKey(event: React.KeyboardEvent) {
+    if (event.key !== 'Escape' || !navOpened) return
     nav.close()
+    burgerRef.current?.focus()
   }
 
   function showInProgress(orderId: string, lotId: string) {
@@ -157,7 +197,8 @@ function App() {
   return (
     <AppShell
       header={{ height: 56 }}
-      navbar={{ width: 240, breakpoint: 'md', collapsed: { mobile: !navOpened, desktop: true } }}
+      // The tabs fit the header from xl; below it they move into the menu.
+      navbar={{ width: 240, breakpoint: 'xl', collapsed: { mobile: !navOpened, desktop: true } }}
       aside={{ width: 400, breakpoint: 'md', collapsed: { desktop: !chatOpen, mobile: !chatOpen } }}
       padding="md"
       transitionDuration={reduceMotion ? 0 : 200}
@@ -166,9 +207,10 @@ function App() {
         <Group h="100%" px="md" justify="space-between" wrap="nowrap" gap="md">
           <Group gap="lg" wrap="nowrap">
             <Burger
+              ref={burgerRef}
               opened={navOpened}
               onClick={toggleNav}
-              hiddenFrom="md"
+              hiddenFrom="xl"
               size="sm"
               aria-label="画面の一覧"
               aria-expanded={navOpened}
@@ -189,7 +231,7 @@ function App() {
               value={tab}
               onChange={(value) => value && selectTab(value as Tab)}
               variant="pills"
-              visibleFrom="md"
+              visibleFrom="xl"
             >
               <Tabs.List>
                 {TABS.map((item) => (
@@ -234,7 +276,7 @@ function App() {
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="sm" id="app-menu" aria-label="画面の一覧" inert={!navOpened}>
+      <AppShell.Navbar p="sm" id="app-menu" aria-label="画面の一覧" inert={!navOpened} onKeyDown={closeNavByKey}>
         {TABS.map((item) => (
           <NavLink
             key={item.value}
@@ -250,8 +292,8 @@ function App() {
         ))}
       </AppShell.Navbar>
 
-      {/* On a phone the open menu or panel covers the page, so the page must not take focus (WCAG 2.4.11). */}
-      <AppShell.Main inert={!medium && (navOpened || chatOpen)}>
+      {/* The open menu covers the page, and so does the panel on a phone, so the page must not take focus then (WCAG 2.4.11). */}
+      <AppShell.Main inert={navOpened || (!medium && chatOpen)} ref={mainRef}>
         {plan.skipped.length > 0 && (
           <Alert color="orange" variant="light" mb="md" title="計画に入れられない変更があります">
             <Text size="sm">
@@ -292,8 +334,13 @@ function App() {
             today={planState.today}
             timingOf={timingOf}
             onAdopt={preview ? undefined : app.adopt}
+            dealDemand={insights.handoffDemand}
           />
         )}
+        {tab === 'deals' && (
+          <DealsView app={app} today={planState.today} insights={insights} threshold={dealThreshold} onThreshold={setDealThreshold} />
+        )}
+        {tab === 'demand' && <DemandView app={app} today={planState.today} />}
         {tab === 'progress' && (
           <ProgressView
             plan={plan}

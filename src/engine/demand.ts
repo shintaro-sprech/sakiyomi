@@ -79,18 +79,24 @@ export function replenishments(data: PlantData, today: IsoDate): Replenishment[]
     const perDay = dailyUsage(part)
     // A part with no route cannot be made, so there is nothing to add for it.
     if (perDay <= 0 || !data.routes[part.partNumber]) return []
-    const routeLength = data.routes[part.partNumber].length
-    const coverage =
-      part.stock +
-      data.orders
-        .filter((order) => order.partNumber === part.partNumber)
-        .reduce((total, order) => total + remainingQuantity(order, data.lots, routeLength), 0)
+    const coverage = coverageOf(data, part)
     // A hair under, so a shortfall that is a whole number in exact arithmetic stays one.
     const quantity = Math.ceil(perDay * days - coverage - 1e-9)
     if (quantity <= 0) return []
     const runsOut = stockoutDate(coverage, part, today) ?? today
     return [{ partNumber: part.partNumber, quantity, needBy: runsOut < today ? today : runsOut }]
   })
+}
+
+// The part's stock and the pieces its open orders have still to finish.
+export function coverageOf(data: PlantData, part: Part): number {
+  const routeLength = data.routes[part.partNumber]?.length ?? 0
+  return (
+    part.stock +
+    data.orders
+      .filter((order) => order.partNumber === part.partNumber)
+      .reduce((total, order) => total + remainingQuantity(order, data.lots, routeLength), 0)
+  )
 }
 
 // Pieces of the order not yet finished (finished lots are already counted in stock).

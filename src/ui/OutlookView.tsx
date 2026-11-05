@@ -3,7 +3,9 @@ import { IconCheck, IconUser, IconUserFilled } from '@tabler/icons-react'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 import { addDays, daysBetween, MINUTES_PER_DAY, parseClock, weekday } from '../engine/dates'
+import { stockoutWithDeals, type DealDemand } from '../engine/dealDemand'
 import {
+  coverageOf,
   dailyUsage,
   lastDayOfNextMonth,
   orderDemands,
@@ -20,7 +22,7 @@ import { describeChange, type Change } from '../engine/scenario'
 import type { CrewDay } from '../engine/scheduler'
 import type { IsoDate, Order, Part } from '../engine/types'
 import type { Decision } from '../state/store'
-import { formatYen, shortDate, shortDateTime, weekdayName } from './format'
+import { dateInYear, formatYen, pieces, shortDate, shortDateTime, weekdayName } from './format'
 import { TodayFocus } from './TodayFocus'
 import { useCountUp } from './useCountUp'
 
@@ -31,6 +33,8 @@ type Props = {
   timingOf: (item: Replenishment) => ReleaseTiming
   // Absent while an option is previewed.
   onAdopt?: (decision: Omit<Decision, 'id' | 'at'>) => void
+  // The deals counted on the deals tab, set beside the stock.
+  dealDemand: DealDemand
 }
 
 const CLASS_LABELS: Record<PriorityClass, string> = { A: 'A 今月', B: 'B 来月', C: 'C 以降' }
@@ -54,7 +58,7 @@ export function ClassBadge({ value }: { value: PriorityClass }) {
   )
 }
 
-export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
+export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand }: Props) {
   const outlook = useMemo(() => monthlyOutlook(plan, today), [plan, today])
   const { data, settings } = plan.scenario
   const demands = useMemo(() => orderDemands(data, today), [data, today])
@@ -285,7 +289,7 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
           在庫の見通し
         </Title>
         <Paper withBorder>
-          <Table.ScrollContainer minWidth={820}>
+          <Table.ScrollContainer minWidth={990}>
             <Table verticalSpacing={6} horizontalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>
@@ -294,6 +298,7 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
                   <Table.Th ta="right">在庫</Table.Th>
                   <Table.Th ta="right">1日の出荷</Table.Th>
                   <Table.Th w={220}>欠品の見込み</Table.Th>
+                  <Table.Th w={190}>商談が決まると</Table.Th>
                   {/* Narrow on a phone, where the button goes under the count beside the fixed part column. */}
                   <Table.Th w={{ base: 150, sm: 280 }}>足りない分</Table.Th>
                 </Table.Tr>
@@ -326,6 +331,9 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
                             </Text>
                           ))
                         )}
+                      </Table.Td>
+                      <Table.Td>
+                        <DealsLine part={part} coverage={coverageOf(data, part)} demand={dealDemand} today={today} />
                       </Table.Td>
                       <Table.Td>
                         {shortfall ? (
@@ -422,6 +430,39 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
             </Table.ScrollContainer>
           </Paper>
         </section>
+      )}
+    </Stack>
+  )
+}
+
+// What the counted deals of a part would add a month, and, when it comes sooner with them,
+// the day stock and what the open orders still have to finish would run out.
+function DealsLine({ part, coverage, demand, today }: { part: Part; coverage: number; demand: DealDemand; today: IsoDate }) {
+  const counted = demand.byPart.find((entry) => entry.partNumber === part.partNumber)
+  if (!counted) {
+    return (
+      <Text size="sm" c="dimmed">
+        —
+      </Text>
+    )
+  }
+  // Both days are looked for up to the end of the deals' period.
+  const { leadMonths } = demand.options
+  const now = stockoutWithDeals(coverage, part, [], leadMonths, today, demand.periodEnd)
+  const withDeals = stockoutWithDeals(coverage, part, demand.counted, leadMonths, today, demand.periodEnd)
+  const sooner = withDeals !== null && (now === null || withDeals < now)
+  return (
+    <Stack gap={0}>
+      <Text size="sm" className="tabular">
+        +{pieces(counted.expected)}個/月（{counted.deals}件）
+      </Text>
+      {sooner && (
+        <Text size="sm" className="tabular" c="red">
+          在庫と注残が尽きる{' '}
+          <span className="nowrap">
+            {now ? dateInYear(now, today) : `${dateInYear(demand.periodEnd, today)}より後`} → {dateInYear(withDeals, today)}
+          </span>
+        </Text>
       )}
     </Stack>
   )

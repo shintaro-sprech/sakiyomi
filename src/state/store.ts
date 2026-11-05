@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { sampleDeals } from '../../sample-data/deals'
+import { sampleOrderHistory } from '../../sample-data/orderHistory'
 import { createSampleData, sampleActuals, sampleChannelStocks, sampleCustomerOrders } from '../../sample-data/sample'
 import { localToday } from '../engine/dates'
+import { addVersion, type HandoffVersion } from '../engine/handoff'
 import type { PlanState } from '../engine/plan'
 import { applyChanges, buildScenario, ChangeError, pinAddedOrders, type Change } from '../engine/scenario'
 import { createDefaultSettings, createSampleSettings } from '../engine/settings'
@@ -29,6 +32,8 @@ export type SavedState = {
   settings: Settings
   decisions: Decision[]
   dataSource: 'sample' | 'excel'
+  // Demand handed to the plan, newest last. Saves from before it was kept have none.
+  handoffs?: HandoffVersion[]
 }
 
 // Bumped when the saved shape changes. Version 2 had no crews; it is carried
@@ -154,6 +159,11 @@ export function withSampleAdditions(saved: SavedState): SavedState {
     actuals: sampleActuals(data),
     customerOrders: served ? customerOrders.filter((entry) => served.has(entry.orderId)) : customerOrders,
     channelStocks: sampleChannelStocks(localToday()),
+    // Deals are edited in the app, so they are kept once saved; a sample saved before deals
+    // were kept gets the sample's.
+    ...(data.deals ? {} : sampleDeals(localToday())),
+    // Not edited in the app, so made afresh up to last month.
+    orderHistory: sampleOrderHistory(data.parts, localToday()),
   }
   return { ...saved, data }
 }
@@ -257,7 +267,21 @@ export function useAppState() {
 
   const resetToSample = useCallback(() => setSaved(createInitialState()), [])
 
-  return { saved, planState, adopt, removeDecision, updateSettings, updateData, replaceData, resetToSample }
+  // Keeps a version of the demand handed to the plan. The deals' version of a day is made
+  // again as the deals change that day, so it replaces the one made earlier the same day.
+  const saveHandoff = useCallback(
+    (version: HandoffVersion) => {
+      setSaved((current) => {
+        const kept = (current.handoffs ?? []).filter(
+          (entry) => !(version.kind === 'deals' && entry.kind === 'deals' && entry.baseDate === version.baseDate),
+        )
+        return { ...current, handoffs: addVersion(kept, version, today) }
+      })
+    },
+    [today],
+  )
+
+  return { saved, planState, adopt, removeDecision, updateSettings, updateData, replaceData, resetToSample, saveHandoff }
 }
 
 export type AppState = ReturnType<typeof useAppState>
