@@ -89,6 +89,8 @@ Where the data goes:
 
 The sample data in [sample-data/sample.ts](sample-data/sample.ts) was made up for this project. Part numbers, machines and quantities do not come from any real plant, and there is no personal data. Dates are relative to the day the app is opened. The sample plant works three shifts on weekdays; at the weekend one person of each crew comes in on the day shift as holiday work.
 
+The meshes in [scripts/models/generated/](scripts/models/generated/) were generated for this project on 6 November 2026 with [Tripo](https://www.tripo3d.ai/), a text-to-3D service, on a paid plan that allows commercial use, from descriptions written for this project: the welding robot's arm, the truck's cab and wheels, the forklift, the band saw, the drill press, the surface grinder and the measuring machine. `npm run models` cuts, paints and fits them in Blender. Every other model, and the rest of these, is built from code in the same script.
+
 ## Layout
 
 ```

@@ -735,7 +735,7 @@ function Lots({ pallet }: { pallet: THREE.Object3D }) {
 // A box truck on the ground beside the base, its rear to the dock and open: it backs in from
 // the right, takes four lots on board, and drives off to the right. The model's rear is at
 // x = 0 and its front toward +x.
-const WHEEL = 0.4
+const WHEEL = 0.45
 
 function Truck({ scene }: { scene: THREE.Object3D }) {
   const copy = useMemo(() => scene.clone(true), [scene])

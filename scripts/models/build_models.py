@@ -15,6 +15,11 @@ The forklift and the truck keep their wheels, and the forklift its forks, as mes
 own named wheel_* and lift, each with its origin where it turns or rises. The truck alone
 faces +X: the rear of its open box is at x = 0, as the entrance backs it up to the dock.
 rack_stock is the material for the rack's three decks, made apart so the rack can stand empty.
+
+The welding robot's arm, the truck's cab and wheels, the forklift, the band saw, the drill press,
+the grinder and the measuring machine start from meshes generated from a written description
+(generated/, see its README). Their builders cut, paint and fit those meshes and keep to the same
+rules as the rest.
 """
 
 import math
@@ -24,11 +29,14 @@ from contextlib import contextmanager
 
 import bmesh
 import bpy
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 
 argv = sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else []
 OUT_DIR = argv[0] if argv else "public/models"
 PREVIEW = argv[1] if len(argv) > 1 else None
+# Meshes generated from a written description of each machine (see README), kept as they came
+# out; the builders below cut, paint and fit them.
+GENERATED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "generated")
 
 
 def linear(hex_color):
@@ -145,6 +153,29 @@ class Model:
         bpy.context.scene.collection.objects.link(empty)
         self._place(empty, at)
         return empty
+
+    def adopt(self, piece, mat, shape, split=None):
+        """Takes in a generated piece: moved into the model by shape, painted mat, or with split
+        (other, test) painted other on the faces test picks, then thinned and its edges kept
+        sharp only where they turn more than 35 degrees."""
+        obj, mesh = piece.obj, piece.obj.data
+        mesh.materials.clear()
+        mesh.materials.append(material(mat))
+        if split:
+            other, test = split
+            mesh.materials.append(material(other))
+            for polygon in mesh.polygons:
+                polygon.material_index = 1 if test(polygon) else 0
+        mesh.transform(shape)
+        if len(mesh.vertices) > 60:
+            obj.modifiers.new("thin", "DECIMATE").ratio = 0.75
+            apply_modifiers(obj)
+        with bpy.context.temp_override(object=obj, active_object=obj, selected_objects=[obj], selected_editable_objects=[obj]):
+            bpy.ops.object.shade_smooth_by_angle(angle=math.radians(35))
+        obj.name = mesh.name = f"{self.name}_piece"
+        self.made.append(obj)
+        self._place(obj, (0, 0, 0))
+        return obj
 
     def _place(self, obj, location):
         parent = self.pivot or self.root
@@ -270,6 +301,86 @@ class Model:
         return [self.root, *self.root.children_recursive]
 
 
+class Piece:
+    """One loose part of a generated mesh and its bounds, in the mesh's own units."""
+
+    def __init__(self, obj):
+        self.obj = obj
+        points = [vertex.co for vertex in obj.data.vertices]
+        self.lo = Vector([min(point[i] for point in points) for i in range(3)])
+        self.hi = Vector([max(point[i] for point in points) for i in range(3)])
+        self.center = (self.lo + self.hi) / 2
+        self.size = self.hi - self.lo
+        skin = 2 * (self.size.x * self.size.y + self.size.y * self.size.z + self.size.z * self.size.x)
+        # How much of its bounding box's skin it covers: wires and thin rods score low.
+        self.fill = sum(polygon.area for polygon in obj.data.polygons) / skin if skin else 0
+
+
+def generated(name, turn=0.0):
+    """The loose parts of generated/<name>.glb, turned turn degrees round Z, largest first."""
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=os.path.join(GENERATED, f"{name}.glb"))
+    new = [obj for obj in bpy.data.objects if obj not in before]
+    source = next(obj for obj in new if obj.type == "MESH")
+    source.data.transform(Matrix.Rotation(math.radians(turn), 4, "Z") @ source.matrix_world)
+    source.parent = None
+    source.matrix_world = Matrix.Identity(4)
+    for obj in new:
+        if obj is not source:
+            bpy.data.objects.remove(obj, do_unlink=True)
+    bpy.ops.object.select_all(action="DESELECT")
+    bpy.context.view_layer.objects.active = source
+    source.select_set(True)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.separate(type="LOOSE")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    pieces = [Piece(obj) for obj in bpy.data.objects if obj.type == "MESH" and obj not in before]
+    return sorted(pieces, key=lambda piece: -len(piece.obj.data.vertices))
+
+
+def drop(pieces):
+    for piece in pieces:
+        bpy.data.objects.remove(piece.obj, do_unlink=True)
+
+
+def tidy(pieces, least=0.012):
+    """The pieces that read at the app's distance: wires and cable loops (thin skins) and specks
+    smaller than least go."""
+    kept = [piece for piece in pieces if piece.fill >= 0.15 and max(piece.size) >= least]
+    drop([piece for piece in pieces if piece not in kept])
+    return kept
+
+
+def fitted(pieces, height=None, length=None):
+    """The shape that stands the pieces on the floor, centered on the origin, scaled to a height
+    or to a length along X, and that scale."""
+    lo = Vector([min(piece.lo[i] for piece in pieces) for i in range(3)])
+    hi = Vector([max(piece.hi[i] for piece in pieces) for i in range(3)])
+    scale = height / (hi.z - lo.z) if height else length / (hi.x - lo.x)
+    return Matrix.Scale(scale, 4) @ Matrix.Translation((-(lo.x + hi.x) / 2, -(lo.y + hi.y) / 2, -lo.z)), scale
+
+
+def volume(piece):
+    return piece.size.x * piece.size.y * piece.size.z
+
+
+def wheels_of(pieces, tires):
+    """Each tire with the pieces wholly inside its bounds (rim, hub, nuts): one wheel apiece."""
+    groups = []
+    taken = set(id(tire) for tire in tires)
+    for tire in tires:
+        group = [tire]
+        for piece in pieces:
+            if id(piece) in taken:
+                continue
+            if all(tire.lo[i] - 0.005 <= piece.lo[i] and piece.hi[i] <= tire.hi[i] + 0.005 for i in range(3)):
+                group.append(piece)
+                taken.add(id(piece))
+        groups.append(group)
+    return groups
+
+
 def machining_center():
     m = Model("machining_center")
     m.box("plinth", (1.96, 1.86, 0.14), (0, 0.16, 0), "ink", bevel=0.03)
@@ -363,24 +474,50 @@ def press_brake():
 
 def welding_robot():
     m = Model("welding_robot")
-    # The robot on a riser at the left; the work on a table at the right.
-    m.box("riser", (0.72, 0.72, 0.5), (-0.6, 0.15, 0), "panel", bevel=0.05)
-    m.cylinder("robot_base", 0.27, 0.14, (-0.6, 0.15, 0.57), "ink", segments=24, bevel=0.02)
-    # The arm swings over the work round the turret's axis; the app lights the torch's tip.
-    # Its shoulder sits low and its two arms are near the same length.
-    with m.moving("arm", (-0.6, 0.15, 0.64)):
-        m.cylinder("turret", 0.25, 0.22, (-0.6, 0.15, 0.75), "clay", segments=24, bevel=0.03)
-        m.box("shoulder", (0.38, 0.44, 0.24), (-0.52, 0.15, 0.8), "clay", bevel=0.06)
-        m.cylinder("shoulder_joint", 0.15, 0.5, (-0.45, 0.15, 0.95), "panel", axis="Y", segments=20, bevel=0.015)
-        m.link("lower_arm", (-0.45, 0.15, 0.95), (-0.56, 0.15, 1.56), 0.2, 0.22, "clay", bevel=0.05)
-        m.cylinder("elbow", 0.13, 0.32, (-0.56, 0.15, 1.56), "clay", axis="Y", segments=20, bevel=0.015)
-        m.box("elbow_motor", (0.26, 0.2, 0.22), (-0.82, 0.15, 1.45), "panel", bevel=0.03)
-        m.link("upper_arm", (-0.56, 0.15, 1.56), (0.16, 0.15, 1.36), 0.16, 0.18, "clay", bevel=0.04)
-        m.cylinder("wrist", 0.09, 0.22, (0.16, 0.15, 1.36), "panel", axis="Y", segments=16, bevel=0.01)
-        m.link("torch_neck", (0.16, 0.15, 1.36), (0.4, 0.15, 1.02), 0.07, 0.07, "ink", bevel=0.01)
-        m.link("nozzle", (0.4, 0.15, 1.02), (0.435, 0.15, 0.95), 0.05, 0.05, "steel", bevel=0.005)
-        # The tip stops just over the seam at the foot of the rib, which runs the way it swings.
-        m.mark("tip_torch", (0.44, 0.15, 0.9))
+    # The generated arm on a riser at the left, turned so its torch reaches over the work on the
+    # table at the right and scaled so its tip stops just over the seam at the rib's foot.
+    pieces = generated("welding_arm")
+    body = pieces[0]
+    foot = [vertex.co for vertex in body.obj.data.vertices if vertex.co.z < 0.01]
+    foot = Vector((sum(co.x for co in foot) / len(foot), sum(co.y for co in foot) / len(foot), 0))
+    torch = min((vertex.co for piece in pieces if piece.lo.x > 0.4 for vertex in piece.obj.data.vertices), key=lambda co: co.z)
+    pivot, tip = Vector((-0.6, 0.15, 0)), Vector((0.44, 0.15, 0.9))
+    scale = (tip - pivot).xy.length / (torch - foot).xy.length
+    lift = tip.z - scale * torch.z
+    turn = math.atan2(*reversed((tip - pivot).xy)) - math.atan2(*reversed((torch - foot).xy))
+    shape = Matrix.Translation(pivot + Vector((0, 0, lift))) @ Matrix.Rotation(turn, 4, "Z") @ Matrix.Scale(scale, 4) @ Matrix.Translation(-foot)
+    # Its own floor flange goes for the riser's still base, which the arm turns on.
+    cut = 0.098
+    bm = bmesh.new()
+    bm.from_mesh(body.obj.data)
+    bmesh.ops.delete(bm, geom=[face for face in bm.faces if face.calc_center_median().z < cut], context="FACES")
+    bmesh.ops.delete(bm, geom=[vertex for vertex in bm.verts if not vertex.link_faces], context="VERTS")
+    bm.to_mesh(body.obj.data)
+    bm.free()
+    with m.moving("arm", (pivot.x, pivot.y, lift)):
+        for index, piece in enumerate(pieces):
+            # The control box at its foot and the cable from it; wires, pins and bolts, which
+            # read as specks at the app's distance. The torch tip stays.
+            x, y, z = piece.center
+            if x < -0.25 or (y > 0.04 and x < -0.07 and z < 0.2) or ((piece.fill < 0.15 or max(piece.size) < 0.04) and piece.lo.x < 0.465):
+                drop([piece])
+                continue
+            if index < 2:
+                mat = "clay"
+            elif piece.lo.z > 0.1 and piece.hi.z < 0.125 and piece.size.x > 0.15:
+                mat = "steel"
+            elif piece.lo.x > 0.465:
+                mat = "steel"
+            elif piece.lo.x > 0.4:
+                mat = "ink"
+            else:
+                mat = "panel"
+            m.adopt(piece, mat, shape)
+        m.mark("tip_torch", tuple(tip))
+    m.box("riser", (0.8, 0.8, lift), (-0.6, 0.15, 0), "panel", bevel=0.05)
+    m.cylinder("robot_flange", 0.34, 0.05, (-0.6, 0.15, lift + 0.025), "ink", segments=24, bevel=0.015)
+    top = lift + scale * cut + 0.005
+    m.cylinder("robot_base", 0.27, top - lift, (-0.6, 0.15, (lift + top) / 2), "ink", segments=24, bevel=0.02)
     for x in (0.03, 0.87):
         for y in (-0.22, 0.52):
             m.box(f"table_leg_{x}_{y}", (0.08, 0.08, 0.73), (x, y, 0), "ink", bevel=0.01)
@@ -421,76 +558,117 @@ def furnace():
 
 def grinder():
     m = Model("grinder")
-    m.box("plinth", (1.9, 1.1, 0.1), (0, 0, 0), "ink", bevel=0.02)
-    m.box("base", (2.0, 1.2, 0.8), (0, 0, 0.1), bevel=0.06)
-    m.box("stripe", (2.02, 0.03, 0.08), (0, -0.605, 0.7), "clay", bevel=0.005)
-    # The table runs to and fro under the wheel.
-    with m.moving("table", (0, -0.2, 0.96)):
-        m.box("table", (1.3, 0.55, 0.1), (0, -0.2, 0.9), "steel", bevel=0.02)
-        m.box("chuck", (1.1, 0.45, 0.06), (0, -0.2, 1.0), "panel", bevel=0.01)
-        m.box("workpiece", (0.5, 0.25, 0.05), (0, -0.2, 1.06), "trim", bevel=0.008)
-        for x in (-0.68, 0.68):
-            m.box(f"stop_{x}", (0.06, 0.55, 0.12), (x, -0.2, 0.9), "clay", bevel=0.01)
-    m.box("column", (0.55, 0.5, 1.25), (0, 0.35, 0.9), bevel=0.05)
-    m.box("head", (0.5, 0.55, 0.4), (0, 0.05, 1.55), "trim", bevel=0.04)
-    m.cylinder("motor", 0.13, 0.3, (0.38, 0.12, 1.75), "panel", axis="X", segments=16, bevel=0.01)
-    m.cylinder("wheel_guard", 0.21, 0.16, (0, -0.18, 1.37), "clay", axis="X", segments=24, bevel=0.015)
-    m.cylinder("wheel", 0.17, 0.1, (0, -0.2, 1.31), "steel", axis="X", segments=24)
-    m.box("console", (0.25, 0.12, 0.5), (1.12, -0.4, 0.55), "panel", bevel=0.02)
-    m.box("console_screen", (0.18, 0.02, 0.14), (1.12, -0.465, 0.85), "glass", bevel=0)
-    m.lamp((0.18, 0.45, 2.15), pole=0.2)
+    # The generated surface grinder: the table, its chuck and its end stop slide to and fro on the
+    # bed under the wheel. At rest they sit a little left, so their travel clears the column at
+    # the right; at the left end of it the table runs out past the bed, as a long stroke does.
+    pieces = tidy(generated("grinder"))
+    shape, scale = fitted(pieces, length=2.3)
+    bed = max((piece for piece in pieces if 0.3 < piece.hi.z < 0.4), key=lambda piece: piece.size.x * piece.size.y)
+    table = [
+        piece
+        for piece in pieces
+        if piece is not bed and piece.lo.z >= bed.hi.z - 0.025 and piece.hi.z < bed.hi.z + 0.03 and piece.hi.x < 0.2
+    ]
+    slid = shape @ Matrix.Translation((-0.06, 0, 0))
+    lo = Vector([min(piece.lo[i] for piece in table) for i in range(3)])
+    hi = Vector([max(piece.hi[i] for piece in table) for i in range(3)])
+    with m.moving("table", tuple(slid @ Vector(((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, hi.z)))):
+        for piece in table:
+            m.adopt(piece, "panel" if piece is max(table, key=volume) else "steel", slid)
+    rest = [piece for piece in pieces if piece not in table]
+    guard = max((piece for piece in rest if piece.lo.z > 0.42 and piece.hi.z < 0.6 and piece.center.x < 0.15), key=lambda piece: len(piece.obj.data.vertices))
+    for piece in rest:
+        if piece is guard:
+            mat = "clay"
+        elif piece is bed:
+            mat = "trim"
+        elif volume(piece) > 0.004 and piece.hi.z < 0.36:
+            mat = "body"
+        elif piece.lo.z > 0.4 and volume(piece) > 0.0004:
+            mat = "trim"
+        else:
+            mat = "ink"
+        m.adopt(piece, mat, shape)
+    m.lamp(tuple(shape @ Vector((bed.hi.x - 0.03, bed.hi.y - 0.03, bed.hi.z))), pole=0.4)
     return m
 
 
 def drill_press():
     m = Model("drill_press")
-    m.box("base", (0.55, 0.7, 0.12), (0, 0.05, 0), "panel", bevel=0.03)
-    m.cylinder("column", 0.07, 1.75, (0, 0.2, 0.995), "steel", segments=16)
-    m.box("table_collar", (0.18, 0.22, 0.12), (0, 0.15, 0.68), "panel", bevel=0.02)
-    m.box("table", (0.55, 0.48, 0.06), (0, -0.05, 0.72), "steel", bevel=0.01)
-    m.box("vise", (0.25, 0.18, 0.08), (0, -0.15, 0.78), "ink", bevel=0.01)
-    m.box("head", (0.42, 0.68, 0.42), (0, 0.05, 1.32), bevel=0.05)
-    m.box("belt_cover", (0.44, 0.5, 0.14), (0, 0.12, 1.74), "clay", bevel=0.03)
-    m.cylinder("motor", 0.12, 0.3, (0, 0.38, 2.03), "panel", segments=16, bevel=0.01)
-    m.cylinder("feed_hub", 0.05, 0.08, (0.25, -0.05, 1.55), "panel", axis="X", segments=12)
-    for index in range(3):
-        angle = math.radians(90 + index * 120)
-        end = (0.27, -0.05 + 0.22 * math.cos(angle), 1.55 + 0.22 * math.sin(angle))
-        m.link(f"feed_spoke_{index}", (0.27, -0.05, 1.55), end, 0.025, 0.025, "steel", bevel=0, plane="YZ")
-    # Long enough to stay in the head when it is fed down.
-    with m.moving("spindle", (0, -0.15, 1.2)):
-        m.cylinder("spindle", 0.032, 0.45, (0, -0.15, 1.275), "steel", segments=10)
-        m.cylinder("chuck", 0.05, 0.08, (0, -0.15, 1.09), "panel", segments=12)
-        m.cylinder("bit", 0.012, 0.12, (0, -0.15, 0.99), "steel", segments=6)
-    m.lamp((0.28, 0.25, 1.74), pole=0.2)
+    # The generated drill press, its spindle and bit turned toward -Y; they come down onto the
+    # table while it drills.
+    pieces = tidy(generated("drill_press", turn=90))
+    shape, scale = fitted(pieces, height=2.2)
+    spindle = [piece for piece in pieces if 0.45 < piece.lo.z and piece.hi.z < 0.75 and -0.06 < piece.center.x < 0.04 and -0.135 < piece.center.y < -0.04]
+    lo = Vector([min(piece.lo[i] for piece in spindle) for i in range(3)])
+    hi = Vector([max(piece.hi[i] for piece in spindle) for i in range(3)])
+    with m.moving("spindle", tuple(shape @ Vector(((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, hi.z)))):
+        for piece in spindle:
+            m.adopt(piece, "ink" if piece.hi.z < lo.z + 0.1 else "steel", shape)
+    rest = [piece for piece in pieces if piece not in spindle]
+    head = max((piece for piece in rest if piece.lo.z > 0.6), key=volume)
+    cover = max((piece for piece in rest if piece.lo.z > 0.9), key=volume)
+    for piece in rest:
+        if piece is head:
+            mat = "body"
+        elif piece is cover:
+            mat = "clay"
+        elif piece.size.z > 0.5 or (piece.size.x > 0.3 and piece.size.z < 0.05 and piece.lo.z > 0.3):
+            mat = "steel"
+        elif (piece.center.y > 0.09 and piece.lo.z > 0.7) or (piece.hi.z < 0.06 and piece.size.x > 0.3):
+            mat = "panel"
+        else:
+            mat = "ink"
+        m.adopt(piece, mat, shape)
+    m.lamp(tuple(shape @ Vector((cover.hi.x - 0.04, cover.hi.y - 0.04, cover.hi.z))), pole=0.2)
     return m
 
 
 def inspection_table():
     m = Model("inspection_table")
-    m.box("plinth", (1.5, 0.9, 0.1), (0, 0.05, 0), "ink", bevel=0.02)
-    m.box("stand", (1.62, 1.02, 0.54), (0, 0.05, 0.1), bevel=0.05)
-    m.box("stripe", (1.64, 1.04, 0.06), (0, 0.05, 0.5), "clay", bevel=0.01)
-    m.box("granite", (1.72, 1.1, 0.16), (0, 0.05, 0.64), "ink", bevel=0.03)
-    for x in (-0.7, 0.7):
-        m.box(f"rail_{x}", (0.08, 1.0, 0.03), (x, 0.05, 0.8), "steel", bevel=0.005)
-    m.box("workpiece", (0.42, 0.3, 0.1), (0.05, -0.05, 0.8), "trim", bevel=0.01)
-    # The bridge runs along the rails; its slender ram rises through it and holds the probe
-    # just over the work.
-    with m.moving("bridge", (0, 0.05, 1.3)):
-        for x in (-0.7, 0.7):
-            m.box(f"bridge_leg_{x}", (0.14, 0.2, 0.86), (x, 0.05, 0.83), "trim", bevel=0.03)
-        m.box("bridge_beam", (1.6, 0.22, 0.2), (0, 0.05, 1.66), bevel=0.04)
-        m.box("carriage", (0.28, 0.12, 0.4), (0.12, -0.11, 1.5), "panel", bevel=0.03)
-        m.box("quill", (0.1, 0.1, 1.6), (0.12, -0.11, 0.98), "ink", bevel=0.01)
-        m.box("quill_cap", (0.14, 0.14, 0.04), (0.12, -0.11, 2.58), "panel", bevel=0.01)
-        m.cylinder("stylus", 0.018, 0.06, (0.12, -0.11, 0.95), "steel", segments=8)
-        m.cylinder("probe_ball", 0.032, 0.05, (0.12, -0.11, 0.935), "clay", segments=12, bevel=0.01)
-    m.cylinder("monitor_foot", 0.16, 0.04, (-1.05, -0.12, 0.02), "ink", segments=16)
-    m.cylinder("monitor_post", 0.03, 1.1, (-1.05, -0.12, 0.55), "steel", segments=10)
-    m.box("monitor", (0.48, 0.05, 0.34), (-1.05, -0.16, 1.05), "panel", bevel=0.02)
-    m.box("monitor_screen", (0.42, 0.02, 0.28), (-1.05, -0.195, 1.08), "glass", bevel=0)
-    m.lamp((0.72, 0.5, 0.8), pole=0.35)
+    # The generated measuring machine: its bridge rides to and fro over the granite, the ram and
+    # probe with it. The box behind its right leg goes and its monitor moves a little forward,
+    # so the legs pass both.
+    pieces = tidy(generated("inspection_table"))
+    shape, scale = fitted(pieces, height=2.6)
+    bridge = [
+        piece
+        for piece in pieces
+        if piece.hi.z > 0.7 or (piece.lo.z > 0.37 and abs(piece.center.x) < 0.06 and -0.03 < piece.center.y < 0.08)
+    ]
+    legs = [piece for piece in bridge if piece.size.z > 0.5]
+    behind = [piece for piece in pieces if piece not in bridge and piece.lo.x > 0.24 and piece.lo.y > 0.09 and piece.hi.z > 0.3]
+    drop(behind)
+    pieces = [piece for piece in pieces if piece not in behind]
+    lo = Vector([min(piece.lo[i] for piece in bridge) for i in range(3)])
+    hi = Vector([max(piece.hi[i] for piece in bridge) for i in range(3)])
+    with m.moving("bridge", tuple(shape @ Vector(((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, hi.z)))):
+        for piece in bridge:
+            if piece in legs or piece.size.x > 0.4:
+                mat = "body"
+            elif piece.hi.z < 0.43:
+                mat = "clay"
+            else:
+                mat = "panel"
+            m.adopt(piece, mat, shape)
+    forward = shape @ Matrix.Translation((0, -0.07, 0))
+    rest = [piece for piece in pieces if piece not in bridge]
+    granite = max((piece for piece in rest if abs(piece.center.x) < 0.05), key=volume)
+    for piece in rest:
+        monitor = piece.center.x > 0.2 and piece.center.y < -0.05 and piece.lo.z > 0.2
+        if piece is granite:
+            mat = "ink"
+        elif monitor:
+            mat = "panel" if piece is max(rest, key=lambda other: other.size.x * other.size.z if other.center.x > 0.2 and other.center.y < -0.05 else 0) else "steel"
+        elif volume(piece) > 0.005:
+            mat = "body"
+        elif piece.lo.z > granite.hi.z - 0.01:
+            mat = "trim"
+        else:
+            mat = "ink"
+        m.adopt(piece, mat, forward if monitor else shape)
+    side = max((piece for piece in rest if piece.center.x > 0.2), key=volume)
+    m.lamp(tuple(shape @ Vector((side.center.x, side.hi.y - 0.04, side.hi.z))), pole=0.35)
     return m
 
 
@@ -526,33 +704,38 @@ def packing_table():
 
 def cutter():
     m = Model("cutter")
-    # An infeed roller stand carries the bar into the vise at the saw.
-    m.box("infeed_frame", (0.85, 0.46, 0.06), (-0.88, -0.05, 0.64), "steel", bevel=0.01)
-    for x in (-1.22, -0.55):
-        m.box(f"infeed_leg_{x}", (0.06, 0.4, 0.64), (x, -0.05, 0), "panel", bevel=0)
-    for x in (-1.15, -0.88, -0.61):
-        m.cylinder(f"roller_{x}", 0.04, 0.42, (x, -0.05, 0.73), "steel", axis="Y", segments=10)
-    m.box("base", (1.3, 0.85, 0.7), (0.2, 0.05, 0), "panel", bevel=0.05)
-    m.box("base_top", (1.36, 0.9, 0.07), (0.2, 0.05, 0.7), "trim", bevel=0.02)
-    m.box("stripe", (1.32, 0.03, 0.08), (0.2, -0.39, 0.55), "clay", bevel=0.005)
-    m.box("bar", (2.0, 0.2, 0.17), (-0.27, -0.05, 0.77), "steel", bevel=0.015)
-    for y in (0.12, -0.22):
-        m.box(f"vise_{y}", (0.5, 0.1, 0.2), (0.25, y, 0.77), "ink", bevel=0.015)
-    for x in (-0.15, 0.65):
-        m.box(f"guide_{x}", (0.1, 0.1, 1.05), (x, 0.4, 0.77), "steel", bevel=0.01)
-        m.box(f"guide_cap_{x}", (0.14, 0.14, 0.05), (x, 0.4, 1.82), "ink", bevel=0.01)
-    # The saw bow comes down the guides, its blade through the bar and just short of the base.
-    with m.moving("head", (0.25, 0.05, 1.45)):
-        m.profile("bow", rounded(1.8, 0.6, 0.28, steps=4), 0.28, (0.25, 0.0, 1.5), "clay", bevel=0.03)
-        m.box("bow_collar", (0.95, 0.3, 0.2), (0.25, 0.27, 1.5), "trim", bevel=0.03)
-        for x in (-0.37, 0.87):
-            m.cylinder(f"wheel_hub_{x}", 0.08, 0.04, (x, -0.15, 1.5), "ink", axis="Y", segments=12)
-        for x in (-0.05, 0.6):
-            m.box(f"blade_guide_{x}", (0.1, 0.12, 0.3), (x, -0.05, 1.22), "ink", bevel=0.015)
-        m.box("blade", (0.75, 0.02, 0.1), (0.27, -0.05, 1.12), "steel", bevel=0)
-    m.box("console", (0.3, 0.3, 1.05), (1.12, -0.45, 0), "panel", bevel=0.03)
-    m.box("console_screen", (0.22, 0.02, 0.16), (1.12, -0.61, 0.8), "glass", bevel=0)
-    m.lamp((1.12, -0.45, 1.05), pole=0.25)
+    # The generated band saw: a cabinet base with the bar in its vise, and over the vise the saw
+    # frame, wheel housing at each end, which comes down through the bar. All that stands clear
+    # above the bar rides with the frame.
+    pieces = tidy(generated("cutter"))
+    shape, scale = fitted(pieces, height=1.87)
+    frame = [piece for piece in pieces if piece.lo.z > 0.47]
+    lo = Vector([min(piece.lo[i] for piece in frame) for i in range(3)])
+    hi = Vector([max(piece.hi[i] for piece in frame) for i in range(3)])
+    with m.moving("head", tuple(shape @ Vector(((lo.x + hi.x) / 2, (lo.y + hi.y) / 2, lo.z)))):
+        for piece in frame:
+            if piece.size.z < 0.05 and piece.size.x > 0.3:
+                mat = "steel"
+            elif max(piece.size) > 0.1:
+                mat = "clay"
+            else:
+                mat = "ink"
+            m.adopt(piece, mat, shape)
+    rest = [piece for piece in pieces if piece not in frame]
+    base = max(rest, key=volume)
+    for piece in rest:
+        if piece is base:
+            mat = "panel"
+        elif piece.size.x > 0.8:
+            mat = "steel"
+        elif piece.lo.z < 0.01:
+            mat = "ink"
+        elif piece.size.x > 0.4 and piece.size.z < 0.1:
+            mat = "trim"
+        else:
+            mat = "ink"
+        m.adopt(piece, mat, shape)
+    m.lamp(tuple(shape @ Vector((base.hi.x - 0.03, base.lo.y + 0.03, base.hi.z))), pole=0.25)
     return m
 
 
@@ -630,46 +813,83 @@ def rack_stock():
 
 def forklift():
     m = Model("forklift")
-    # Its fork heels stand at the origin; a pallet it carries sits centered 0.55 m in front (-Y).
+    # The generated forklift, its forks turned toward -Y. Its fork heels stand at the origin; a
+    # pallet it carries sits centered 0.55 m in front (-Y).
+    pieces = tidy(generated("forklift", turn=90))
+    lift = [piece for piece in pieces if piece.hi.y < -0.14]
+    # Centered across its body, as its forks sit a little to one side.
+    tines = [vertex.co for piece in lift for vertex in piece.obj.data.vertices if vertex.co.z < 0.045]
+    heel = Vector(((min(piece.lo.x for piece in pieces) + max(piece.hi.x for piece in pieces)) / 2, max(co.y for co in tines), 0))
+    shape = Matrix.Scale(2.17 / max(piece.hi.z for piece in pieces), 4) @ Matrix.Translation(-heel)
+    tires = {}
+    for piece in pieces:
+        if piece in lift or piece.lo.z > 0.03 or piece.size.z < 0.12:
+            continue
+        key = (piece.center.x > heel.x, piece.center.y > 0.15)
+        if key not in tires or len(piece.obj.data.vertices) > len(tires[key].obj.data.vertices):
+            tires[key] = piece
+    wheels = wheels_of([piece for piece in pieces if piece not in lift], list(tires.values()))
+    # The forks and their carriage rise; the rest stands, the overhead guard dark over the body.
     with m.apart("lift", (0, 0, 0)):
-        for x in (-0.28, 0.28):
-            m.box(f"fork_{x}", (0.1, 1.05, 0.045), (x, -0.525, 0.04), "steel", bevel=0.01)
-            m.box(f"fork_shank_{x}", (0.1, 0.045, 0.45), (x, 0.0225, 0.04), "steel", bevel=0.01)
-        m.box("carriage", (0.92, 0.05, 0.3), (0, 0.07, 0.12), "ink", bevel=0.01)
-        for x in (-0.44, -0.15, 0.15, 0.44):
-            m.box(f"backrest_{x}", (0.04, 0.03, 0.55), (x, 0.06, 0.42), "ink", bevel=0)
-        m.box("backrest_top", (0.92, 0.03, 0.04), (0, 0.06, 0.97), "ink", bevel=0)
-    for x in (-0.3, 0.3):
-        m.box(f"mast_{x}", (0.09, 0.12, 2.0), (x, 0.15, 0.05), "steel", bevel=0.01)
-    m.box("mast_top", (0.7, 0.1, 0.08), (0, 0.15, 1.97), "ink", bevel=0.01)
-    m.box("mast_tie", (0.7, 0.1, 0.06), (0, 0.15, 0.95), "ink", bevel=0.01)
-    m.cylinder("lift_cylinder", 0.05, 1.5, (0, 0.24, 0.85), "steel", segments=10)
-    m.box("frame", (1.0, 1.75, 0.42), (0, 1.15, 0.16), "clay", bevel=0.05)
-    m.box("counterweight", (1.04, 0.42, 0.8), (0, 1.86, 0.14), "ink", bevel=0.1)
-    m.box("hood", (0.92, 0.75, 0.32), (0, 1.25, 0.58), "clay", bevel=0.05)
-    m.box("cowl", (0.92, 0.3, 0.5), (0, 0.5, 0.58), "clay", bevel=0.05)
-    m.box("seat", (0.46, 0.42, 0.1), (0, 1.3, 0.9), "ink", bevel=0.03)
-    m.box("seat_back", (0.46, 0.1, 0.38), (0, 1.5, 0.95), "ink", bevel=0.03)
-    m.link("steering_column", (0, 0.55, 1.05), (0, 0.72, 1.25), 0.05, 0.05, "ink", bevel=0, plane="YZ")
-    m.cylinder("steering_wheel", 0.16, 0.04, (0, 0.74, 1.27), "ink", segments=16)
-    # The overhead guard over the driver.
-    for y, z in ((0.4, 0.58), (1.62, 0.9)):
-        for x in (-0.45, 0.45):
-            m.box(f"guard_post_{x}_{y}", (0.06, 0.06, 2.05 - z), (x, y, z), "ink", bevel=0.01)
-    m.box("guard_roof", (0.98, 1.34, 0.05), (0, 1.01, 2.02), "ink", bevel=0.01)
-    for x in (-0.45, 0.45):
-        m.box(f"headlight_{x}", (0.1, 0.04, 0.08), (x, 0.36, 1.6), "trim", bevel=0.01)
-    m.cylinder("beacon", 0.06, 0.1, (0.3, 1.5, 2.12), "clay", segments=12, bevel=0.01)
-    for name, x in (("wheel_front_left", -0.44), ("wheel_front_right", 0.44)):
-        m.wheel(name, 0.23, 0.18, (x, 0.52, 0.23), axis="X")
-    for name, x in (("wheel_rear_left", -0.4), ("wheel_rear_right", 0.4)):
-        m.wheel(name, 0.2, 0.12, (x, 1.82, 0.2), axis="X")
+        for piece in lift:
+            m.adopt(piece, "steel", shape)
+    for group in wheels:
+        tire = group[0]
+        at = shape @ tire.center
+        name = f"wheel_{'rear' if at.y > 1.0 else 'front'}_{'right' if at.x > 0 else 'left'}"
+        with m.apart(name, tuple(at)):
+            for piece in group:
+                m.adopt(piece, "ink" if piece is tire else "trim", shape)
+    taken = set(id(piece) for group in wheels for piece in group) | set(id(piece) for piece in lift)
+    rest = [piece for piece in pieces if id(piece) not in taken]
+    m.adopt(rest[0], "clay", shape, split=("panel", lambda face: face.center.z > 0.47))
+    for piece in rest[1:]:
+        m.adopt(piece, "panel", shape)
     return m
 
 
 def truck():
     m = Model("truck")
-    m.box("chassis", (6.5, 0.9, 0.22), (3.35, 0, 0.62), "ink", bevel=0.02)
+    # The generated truck's cab and axles under the open cargo box the entrance loads at the
+    # dock; its own box, shorter and shut, is left out. It faces +X with the box's rear at x = 0.
+    pieces = tidy(generated("truck", turn=180))
+    scale = 5.4
+    front = [piece for piece in pieces if piece.lo.x > 0.192]
+    rear = [piece for piece in pieces if piece.lo.x > -0.375 and piece.hi.x < -0.14 and piece.hi.z < 0.2]
+    drop([piece for piece in pieces if piece not in front and piece not in rear])
+    tires = [piece for piece in front + rear if piece.lo.z < 0.005 and piece.size.z > 0.15]
+    front_shape = Matrix.Translation((6.86 - scale * max(piece.hi.x for piece in front), 0, 0)) @ Matrix.Scale(scale, 4)
+    axle = sum(tire.center.x for tire in tires if tire in rear) / 2
+    rear_shape = Matrix.Translation((1.5 - scale * axle, 0, 0)) @ Matrix.Scale(scale, 4)
+    taken = set()
+    for group in wheels_of(front + rear, tires):
+        tire = group[0]
+        shape = front_shape if tire in front else rear_shape
+        at = shape @ tire.center
+        with m.apart(f"wheel_{(0 if at.y > 0 else 1) + (2 if at.x > 3 else 0)}", tuple(at)):
+            for piece in group:
+                m.adopt(piece, "ink" if piece is tire else "trim", shape)
+                taken.add(id(piece))
+    cab = max(front, key=lambda piece: piece.size.z * piece.size.y)
+
+    def window(face):
+        # The windscreen and the door windows: the cab's faces that look ahead or aside
+        # between its waist and its roof.
+        x, y, z = face.center
+        return 0.3 < z < 0.44 and (face.normal.x > 0.55 or (abs(face.normal.y) > 0.8 and x > 0.27))
+
+    for piece in front:
+        if id(piece) in taken:
+            continue
+        bumper = piece.hi.x > 0.47 and piece.hi.z < 0.15 and piece.size.y > 0.3
+        if piece is cab:
+            m.adopt(piece, "body", front_shape, split=("glass", window))
+        else:
+            m.adopt(piece, "clay" if bumper else "ink", front_shape)
+    for piece in rear:
+        if id(piece) not in taken:
+            m.adopt(piece, "ink", rear_shape)
+    m.box("chassis", (5.6, 0.9, 0.22), (2.9, 0, 0.62), "ink", bevel=0.02)
     # The cargo box, open at the rear, its floor 1.0 m up, with its doors swung round to its sides.
     m.box("cargo_floor", (4.9, 2.2, 0.08), (2.45, 0, 0.92), "panel", bevel=0.01)
     for y in (1.075, -1.075):
@@ -686,28 +906,11 @@ def truck():
             m.box(f"rib_{y}_{index}", (0.05, 0.02, 2.0), (1.4 + index * 0.6, y, 1.07), "trim", bevel=0)
         m.box(f"stripe_{y}", (3.7, 0.02, 0.12), (2.95, y * 1.005, 1.08), "clay", bevel=0)
         m.box(f"door_{y}", (1.04, 0.05, 2.1), (0.52, y + (0.03 if y > 0 else -0.03), 1.0), "trim", bevel=0.01)
+        m.box(f"side_guard_{y}", (2.4, 0.04, 0.06), (3.45, y * 0.96, 0.5), "ink", bevel=0)
     m.box("rear_bumper", (0.1, 2.0, 0.12), (0.15, 0, 0.45), "ink", bevel=0.01)
     for y in (0.85, -0.85):
         m.box(f"tail_light_{y}", (0.04, 0.25, 0.1), (0.1, y, 0.57), "clay", bevel=0.005)
-    # The cab: its roof rounds down onto the windscreen.
-    cab = [(-0.85, -0.85), (0.85, -0.85), (0.85, 0.35)]
-    cab += [(0.55 + 0.3 * math.cos(math.radians(a)), 0.35 + 0.5 * math.sin(math.radians(a))) for a in (30, 60, 90)]
-    cab += [(-0.85, 0.85)]
-    m.profile("cab", cab, 2.1, (5.95, 0, 1.8), "panel", axis="Y", bevel=0.04)
-    m.box("windscreen", (0.03, 1.8, 0.55), (6.81, 0, 1.6), "glass", bevel=0.01)
-    for y in (1.06, -1.06):
-        m.box(f"side_window_{y}", (0.7, 0.03, 0.5), (6.0, y, 1.7), "glass", bevel=0.01)
-        m.box(f"mirror_arm_{y}", (0.06, 0.25, 0.04), (6.65, y * 1.1, 2.12), "ink", bevel=0)
-        m.box(f"mirror_{y}", (0.06, 0.08, 0.3), (6.68, y * 1.22, 1.84), "ink", bevel=0.01)
-        m.box(f"step_{y}", (0.4, 0.15, 0.05), (5.25, y * 0.95, 0.6), "ink", bevel=0.01)
-        m.box(f"side_guard_{y}", (2.6, 0.04, 0.06), (3.45, y * 0.96, 0.5), "ink", bevel=0)
-    m.box("grille", (0.03, 1.3, 0.3), (6.81, 0, 1.05), "ink", bevel=0.005)
-    for y in (0.78, -0.78):
-        m.box(f"headlight_{y}", (0.04, 0.32, 0.16), (6.81, y, 1.08), "trim", bevel=0.01)
-    m.box("bumper", (0.16, 2.08, 0.24), (6.78, 0, 0.78), "clay", bevel=0.03)
     m.cylinder("fuel_tank", 0.22, 0.9, (3.4, -0.7, 0.62), "steel", axis="X", segments=16, bevel=0.02)
-    for index, (x, y, width) in enumerate(((1.5, 0.82, 0.5), (1.5, -0.82, 0.5), (5.75, 0.92, 0.3), (5.75, -0.92, 0.3))):
-        m.wheel(f"wheel_{index}", 0.4, width, (x, y, 0.4))
     return m
 
 
