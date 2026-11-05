@@ -31,7 +31,11 @@ The core of the app is a tool-use loop with Claude Opus 5.5 (`claude-opus-5-5`, 
 | `simulate_changes` | Applies what-if changes and returns how every order's finish date and time, this month's gross profit and overtime, holiday and night hours move |
 | `present_options` | Shows option cards; the reported event and the countermeasures are kept apart |
 
-The tools run in the browser against the same scheduler that draws the screens, so Claude's numbers always match what the planner sees. The Cloudflare Worker only relays: it fixes the model, system prompt, tool definitions and output length, accepts only user and assistant turns, limits requests per visitor and enables server-side refusal fallbacks. The API key never reaches the browser.
+The tools run in the browser against the same scheduler that draws the screens, so the numbers Claude works from and the numbers on the option cards come from the same calculation as the screens. The Cloudflare Worker only relays: it fixes the model, system prompt, tool definitions and output length, accepts only user and assistant turns, limits requests per visitor and enables server-side refusal fallbacks. The API key never reaches the browser.
+
+## Try it online
+
+Open https://sakiyomi.shintaro-solopreneur.workers.dev. The app starts with fictional sample data, and what you change is saved only in your browser. In the "Claude に相談" (Ask Claude) panel, try the first suggested message, "注番1045の材料が2日遅れると連絡がありました" (the material for order 1045 is two days late).
 
 ## Try it locally
 
