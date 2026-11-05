@@ -62,8 +62,10 @@ export type SetupRule = {
 export type Crew = {
   name: string
   processes: string[]
-  // People at work on a regular working day.
+  // People at work on a regular working day, on each shift where the plant runs shifts.
   people: number
+  // People who come in on a day off, as holiday work, on each shift; none when not set.
+  holidayPeople?: number
 }
 
 // People of a crew at work on one day, when it is not the usual number.
@@ -155,6 +157,10 @@ export type Settings = {
   // 1: a day shift only, between workStart and workEnd. 3: three shifts that cover the
   // whole day, so there is no time left for overtime (see workHours in settings.ts).
   shifts: 1 | 3
+  // Where three shifts run: whether the crews that come in on a day off work its day shift
+  // only (1), or all three shifts (3). A day-shift plant works its day shift on days off too.
+  // See holidayHours in settings.ts.
+  holidayShifts: 1 | 3
   // The day shift's hours as HH:MM, kept while three shifts run.
   workStart: string
   workEnd: string
@@ -167,7 +173,7 @@ export type Settings = {
   transferMinutes: number
   // Lots sitting at a step this many days or more get a warning.
   stagnationWarningDays: number
-  // Labor cost per person-hour in yen, and the premiums on top of it
+  // The labor rate, pay per person-hour in yen, and the premiums on top of it
   // (0.25 = 25%; the statutory minimums in Japan are 25% and 35%). The night premium is
   // for work between 22:00 and 05:00 (25% by law) and adds to the others.
   laborRate: number

@@ -19,13 +19,16 @@ import { IconCheck, IconChevronDown, IconHistory, IconMinus, IconPlus } from '@t
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type { ProposedOption } from '../assistant/tools'
+import { equipmentCalendar, workingWindow } from '../engine/calendar'
 import { addDays, daysBetween, MINUTES_PER_DAY, parseClock, weekday } from '../engine/dates'
+import { orderTones } from '../engine/floor'
 import type { Plan } from '../engine/plan'
 import { SHIFT_STARTS, workHours } from '../engine/settings'
 import { lotHistory } from '../engine/records'
 import type { ScheduledOperation } from '../engine/scheduler'
 import type { Equipment, IsoDate } from '../engine/types'
 import { shortDate, shortDateTime } from './format'
+import { useMinuteClock } from './useMinuteClock'
 
 type Props = {
   plan: Plan
@@ -68,12 +71,7 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
   // Set when the planner opens a panel and cleared once focus has moved to it, so a
   // what-if that hides the panel and brings it back leaves focus alone.
   const [focusPending, setFocusPending] = useState(false)
-  // The time now, moved on as each minute turns.
-  const [clock, setClock] = useState(() => new Date())
-  useEffect(() => {
-    const timer = window.setTimeout(() => setClock(new Date()), 60_000 - (clock.getSeconds() * 1000 + clock.getMilliseconds()))
-    return () => window.clearTimeout(timer)
-  }, [clock])
+  const clock = useMinuteClock()
   const focused = useCallback(() => setFocusPending(false), [])
   const { scenario, result } = plan
   const { settings, data } = scenario
@@ -206,13 +204,8 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
   // The tag stays inside the first day's column, clear of the fixed equipment column.
   const tagLeft = Math.min(Math.max(x(now) - NOW_TAG_WIDTH / 2, 0), Math.max(0, dayWidth - NOW_TAG_WIDTH))
 
-  const tone = (operation: ScheduledOperation) => {
-    const forecast = forecasts.get(operation.orderId)
-    if (forecast?.late) return 'late'
-    const due = dueByOrder.get(operation.orderId)
-    if (due && forecast?.finishDate && daysBetween(forecast.finishDate, due) <= 1) return 'tight'
-    return 'ok'
-  }
+  const tones = useMemo(() => orderTones(plan), [plan])
+  const tone = (operation: ScheduledOperation) => tones.get(operation.orderId) ?? 'ok'
   const lotLabel = (operation: ScheduledOperation) => (operation.planned ? `${operation.lotId} 予定` : operation.lotId)
   const partLabel = (partNumber: string) => `${partNumber} ${shapes.get(partNumber) ?? ''}`.trim()
   const setupLabel = (operation: ScheduledOperation) => {
@@ -345,7 +338,7 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
             const stopped = settings.stoppedEquipment.includes(equipment.id)
             const operations = operationsOn.get(equipment.id) ?? []
             const down = scenario.downtime.filter((entry) => entry.equipmentId === equipment.id)
-            const extra = scenario.holidayWork.filter((entry) => entry.equipmentId === equipment.id)
+            const calendar = equipmentCalendar(scenario, equipment.id, today)
             const pressed = selectedEquipment?.id === equipment.id
             return (
               <div
@@ -371,16 +364,33 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
                   </button>
                 </div>
                 <div className="gantt-track" style={{ width: days * dayWidth }}>
-                  {dates.map((date, index) => {
-                    const off = isOff(settings.workWeekdays, date) && !extra.some((entry) => entry.date === date)
+                  {/* The time the machine does not work is shaded: a day off, or the hours on either
+                      side of a day off's shift its crew comes in on; a day it is down is hatched. */}
+                  {dates.flatMap((date, index) => {
                     const isDown = down.some((entry) => date >= entry.from && date <= entry.to)
-                    return off || isDown ? (
-                      <div
-                        key={date}
-                        className={`gantt-shade${isDown ? ' is-down' : ''}`}
-                        style={{ left: index * dayWidth, width: dayWidth }}
-                      />
-                    ) : null
+                    const window = workingWindow(calendar, index)
+                    if (isDown || !window) {
+                      return [
+                        <div
+                          key={date}
+                          className={`gantt-shade${isDown ? ' is-down' : ''}`}
+                          style={{ left: index * dayWidth, width: dayWidth }}
+                        />,
+                      ]
+                    }
+                    const dayStart = index * MINUTES_PER_DAY
+                    return [
+                      [dayStart + displayStart, window.start],
+                      [window.end, dayStart + displayEnd],
+                    ]
+                      .filter(([from, to]) => to > from)
+                      .map(([from, to]) => (
+                        <div
+                          key={`${date}-${from}`}
+                          className="gantt-shade"
+                          style={{ left: x(from), width: x(to) - x(from) }}
+                        />
+                      ))
                   })}
                   {operations.map((operation) => {
                     const left = x(operation.start)

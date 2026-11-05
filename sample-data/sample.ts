@@ -77,14 +77,15 @@ export function createSampleData(today: IsoDate): PlantData {
       { process: '曲げ', fromShape: '板金', toShape: '板金', minutes: 20 },
     ],
     crews: [
-      { name: '板金班', processes: ['切断', '曲げ', '溶接'], people: 3 },
-      { name: '機械班', processes: ['切削', 'タップ', '熱処理', '研削', '穴あけ'], people: 2 },
-      { name: '仕上げ班', processes: ['検査', '梱包'], people: 1 },
+      // On Saturdays and Sundays one person of each crew comes in on the day shift, as holiday work.
+      { name: '板金班', processes: ['切断', '曲げ', '溶接'], people: 3, holidayPeople: 1 },
+      { name: '機械班', processes: ['切削', 'タップ', '熱処理', '研削', '穴あけ'], people: 2, holidayPeople: 1 },
+      { name: '仕上げ班', processes: ['検査', '梱包'], people: 1, holidayPeople: 1 },
     ],
     attendance: [{ crew: '機械班', date: workday(2), people: 1 }],
     orders: [
       { id: '1030', partNumber: 'B-200', quantity: 30, due: workday(5) },
-      { id: '1045', partNumber: 'B-200', quantity: 90, due: workday(8), materialOn: workday(1) },
+      { id: '1045', partNumber: 'B-200', quantity: 90, due: workday(7), materialOn: workday(1) },
       { id: '1021', partNumber: 'A-100', quantity: 150, due: workday(7) },
       { id: '1022', partNumber: 'A-100', quantity: 60, due: workday(9) },
       { id: '1040', partNumber: 'A-100', quantity: 45, due: nextMonth(10), materialOn: workday(2) },

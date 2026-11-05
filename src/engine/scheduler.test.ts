@@ -418,7 +418,58 @@ describe('schedule', () => {
       ['1', '2026-11-03T08:00'],
       ['2', '2026-11-04T08:00'],
     ])
-    expect(result.crewDays[0]).toEqual({ crew: '加工班', date: TUESDAY, people: 1, peak: 1, machines: ['M1'] })
+    expect(result.crewDays[0]).toEqual({ crew: '加工班', date: TUESDAY, holiday: false, people: 1, peak: 1, machines: ['M1'] })
+  })
+
+  it('runs a crew of a three-shift plant on the day shift only on its days off, unless set otherwise', () => {
+    const run = (holidayShifts: 1 | 3) =>
+      plan({
+        start: FRIDAY,
+        settings: { shifts: 3, holidayShifts },
+        routes: { P: oneStep('加工', 60) },
+        equipment: [machine('M1', '加工')],
+        crews: [{ name: '加工班', processes: ['加工'], people: 1, holidayPeople: 1 }],
+        orders: [order('1', 'P', 30, '2026-11-20')],
+      }).operations[0].endAt
+
+    // 24 hours on Friday; the other 6 run on Saturday's day shift from 08:00.
+    expect(run(1)).toBe('2026-11-07T14:00')
+    // Round the clock on Saturday too.
+    expect(run(3)).toBe('2026-11-07T06:00')
+  })
+
+  it('applies help from another crew on working days only', () => {
+    const result = plan({
+      start: FRIDAY,
+      routes: { P: oneStep('加工', 60) },
+      equipment: [machine('M1', '加工')],
+      crews: [{ name: '加工班', processes: ['加工'], people: 1 }],
+      orders: [order('1', 'P', 12, '2026-11-20')],
+      changes: [{ kind: 'headcount', crew: '加工班', from: '2026-11-06', to: '2026-11-09', people: 2 }],
+    })
+
+    // The crew does not come in at the weekend, help or not.
+    expect(result.crewDays.filter((day) => day.holiday)).toEqual([])
+    expect(result.operations[0].endAt).toBe('2026-11-09T11:00')
+  })
+
+  it('runs a crew on its days off with its holiday people', () => {
+    const result = plan({
+      start: FRIDAY,
+      routes: { P: oneStep('加工', 60) },
+      equipment: [machine('M1', '加工'), machine('M2', '加工')],
+      crews: [{ name: '加工班', processes: ['加工'], people: 2, holidayPeople: 1 }],
+      orders: [order('1', 'P', 12, '2026-11-20'), order('2', 'P', 12, '2026-11-20')],
+    })
+    const saturday = result.crewDays.find((day) => day.date === '2026-11-07')
+
+    // Order 1 runs on M1 into Saturday. Order 2 cannot start on M2 on Friday, as it would run
+    // into Saturday too, when the one person is on M1; it follows on M1 into Sunday.
+    expect(saturday).toMatchObject({ holiday: true, people: 1, peak: 1 })
+    expect(result.operations.map((operation) => [operation.equipmentId, operation.endAt])).toEqual([
+      ['M1', '2026-11-07T11:00'],
+      ['M1', '2026-11-08T14:00'],
+    ])
   })
 
   it('moves a person to the next machine of the crew when work there ends', () => {

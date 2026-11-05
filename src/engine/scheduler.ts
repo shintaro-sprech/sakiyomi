@@ -63,11 +63,13 @@ export type OrderForecast = {
   late: boolean
 }
 
-// People of a crew on one regular working day, the most machines of the crew
-// running at once, and the machines that ran.
+// People of a crew on one day it comes in, a working day or a day off it works as holiday
+// work, the most machines of the crew running at once, and the machines that ran.
 export type CrewDay = {
   crew: string
   date: IsoDate
+  // A day off the crew comes in on.
+  holiday: boolean
   people: number
   peak: number
   machines: string[]
@@ -78,7 +80,7 @@ export type ScheduleResult = {
   operations: ScheduledOperation[]
   unscheduled: UnscheduledOperation[]
   orders: OrderForecast[]
-  // Working days within settings.horizonDays, for every crew.
+  // Days within settings.horizonDays each crew comes in on, working days and days off alike.
   crewDays: CrewDay[]
 }
 
@@ -121,8 +123,9 @@ type Candidate = {
   waitedForPeople: boolean
 }
 
-// Work of each crew already planned, as stretches of working time on regular
-// working days. Holiday work brings its own person, so it is not counted.
+// Work of each crew already planned, as stretches of working time on working days and on
+// the days off the crew comes in on. A machine called in on its own on a day off brings its
+// own person, so its work is not counted.
 class Staffing {
   // Keyed by crew name and day, so each check looks at one day's work only.
   private readonly work = new Map<string, { equipmentId: string; start: number; end: number }[]>()
@@ -149,7 +152,7 @@ class Staffing {
   // crew would be free, or null when there are enough throughout.
   firstShortMinute(machine: Machine, start: number, end: number, spare = 0): number | null {
     if (!machine.crew) return null
-    for (const segment of regularSegments(machine, start, end)) {
+    for (const segment of staffedSegments(machine, start, end)) {
       const others = this.othersOn(machine, segment.day)
       const limit = this.peopleOn(machine.crew, segment.day) - spare
       const moments = [segment.start, ...others.map((item) => item.start)]
@@ -174,7 +177,7 @@ class Staffing {
 
   assign(machine: Machine, start: number, end: number): void {
     if (!machine.crew) return
-    for (const segment of regularSegments(machine, start, end)) {
+    for (const segment of staffedSegments(machine, start, end)) {
       const key = `${machine.crew.name}|${segment.day}`
       this.work.set(key, [
         ...(this.work.get(key) ?? []),
@@ -200,8 +203,13 @@ class Staffing {
   }
 }
 
-function regularSegments(machine: Machine, start: number, end: number) {
-  return workingSegments(machine.calendar, start, end).filter((segment) => isRegularDay(machine.calendar, segment.day))
+// The stretches of work the crew's people run: on working days, and on days off the crew
+// comes in on. A machine called in on its own on a day off has a person of its own.
+function staffedSegments(machine: Machine, start: number, end: number) {
+  const { calendar } = machine
+  return workingSegments(calendar, start, end).filter(
+    (segment) => isRegularDay(calendar, segment.day) || !calendar.extraDays.includes(segment.day),
+  )
 }
 
 // How far into the time to the first finish a machine may wait for more urgent work.
@@ -220,8 +228,9 @@ const WAIT_SHARE = 0.75
 // machine starts from the part it ran last. A step waits the transfer time
 // after the step before it, unless both run on the same machine, as on a
 // multi-tasking machine taking several steps of a lot in a row.
-// A running machine needs one person of its crew, so on a regular working day
-// no more machines of a crew run at once than its people at work; people move
+// A running machine needs one person of its crew, so on a working day, and on a day off
+// the crew comes in on, no more machines of a crew run at once than its people at work
+// (a machine called in on its own on a day off has its own person); people move
 // between the crew's machines as work ends. When an operation would take the
 // last free person of its crew, the crew's other machines join the
 // competition, so people go to the work with the higher priority.
@@ -316,8 +325,10 @@ function describeCrewDays(scenario: Scenario, planStart: IsoDate, staffing: Staf
   for (const crew of data.crews) {
     for (let day = 0; day < settings.horizonDays; day += 1) {
       const date = addDays(planStart, day)
-      if (!settings.workWeekdays.includes(weekday(date))) continue
-      days.push({ crew: crew.name, date, people: staffing.peopleOn(crew, day), ...staffing.dayOf(crew, day) })
+      const holiday = !settings.workWeekdays.includes(weekday(date))
+      const people = staffing.peopleOn(crew, day)
+      if (holiday && people === 0) continue
+      days.push({ crew: crew.name, date, holiday, people, ...staffing.dayOf(crew, day) })
     }
   }
   return days

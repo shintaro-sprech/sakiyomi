@@ -4,6 +4,7 @@ export function createDefaultSettings(): Settings {
   return {
     horizonDays: 14,
     shifts: 1,
+    holidayShifts: 1,
     workStart: '08:00',
     workEnd: '17:00',
     workWeekdays: [1, 2, 3, 4, 5],
@@ -31,7 +32,16 @@ export function workHours(settings: Settings): { start: string; end: string } {
   return settings.shifts === 3 ? { start: '00:00', end: '24:00' } : { start: settings.workStart, end: settings.workEnd }
 }
 
-// The sample plant runs three shifts on weekdays and stops at the weekend.
+// The hours the crews work on a day off they come in on: the day shift's. With three shifts
+// that is the shift from 08:00, unless they run all three shifts on days off too. A machine
+// called in on its own on a day off runs the working day's hours instead (workHours).
+export function holidayHours(settings: Settings): { start: string; end: string } {
+  if (settings.shifts === 1) return workHours(settings)
+  return settings.holidayShifts === 3 ? workHours(settings) : { start: SHIFT_STARTS[3][1], end: SHIFT_STARTS[3][2] }
+}
+
+// The sample plant runs three shifts on weekdays, and at the weekend its crews come in on the
+// day shift.
 export function createSampleSettings(): Settings {
   return { ...createDefaultSettings(), shifts: 3 }
 }

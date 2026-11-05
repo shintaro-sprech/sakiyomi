@@ -1,5 +1,5 @@
-import { addDays, weekday } from '../engine/dates'
-import type { IsoDate, Settings } from '../engine/types'
+import { weekday } from '../engine/dates'
+import type { IsoDate } from '../engine/types'
 
 // 2026-11-12 -> 11/12
 export function shortDate(date: IsoDate | null | undefined): string {
@@ -42,9 +42,3 @@ export function weekdayName(date: IsoDate): string {
   return WEEKDAY_NAMES[weekday(date)]
 }
 
-// Working days from today within the plan horizon.
-export function workingDays(today: IsoDate, settings: Settings): IsoDate[] {
-  return Array.from({ length: settings.horizonDays }, (_, day) => addDays(today, day)).filter((date) =>
-    settings.workWeekdays.includes(weekday(date)),
-  )
-}

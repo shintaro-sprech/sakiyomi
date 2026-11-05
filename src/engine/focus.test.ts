@@ -19,15 +19,15 @@ describe('todayFocus', () => {
         partNumber: 'B-200',
         onHand: 60,
         toOrder: 104,
-        startAt: '2026-11-06T12:00',
+        startAt: '2026-11-09T00:00',
         orderBy: null,
         arrives: '2026-11-10',
         leadDays: 7,
       },
       { kind: 'distributorOrder', customer: '取引先E', partNumber: 'B-200', quantity: 60, on: today, stockNow: 12, daysLeft: 6 },
-      { kind: 'promiseMissed', orderId: '1045', customer: '取引先B', answered: '2026-11-11', finishDate: '2026-11-13', daysLate: 2 },
+      { kind: 'promiseMissed', orderId: '1045', customer: '取引先B', answered: '2026-11-10', finishDate: '2026-11-12', daysLate: 2 },
       // Material ordered today comes on 11/10, too late for the shortage from 11/5, so both show.
-      { kind: 'shortage', partNumber: 'B-200', from: '2026-11-05', maxShortage: 33 },
+      { kind: 'shortage', partNumber: 'B-200', from: '2026-11-05', maxShortage: 29 },
     ])
   })
 

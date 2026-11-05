@@ -24,16 +24,16 @@ describe('executeTool', () => {
         partNumber: 'B-200',
         quantity: 164,
         needBy: '2026-11-25',
-        startAt: '2026-11-06T12:00',
-        materialOrderBy: '2026-10-30',
+        startAt: '2026-11-09T00:00',
+        materialOrderBy: '2026-11-02',
         materialLate: true,
         materialArrives: '2026-11-10',
       },
     ])
-    expect(situation.orders.find((order) => order.id === '1045')?.deliveries[0]).toMatchObject({ answered: '2026-11-11', daysLate: 2 })
+    expect(situation.orders.find((order) => order.id === '1045')?.deliveries[0]).toMatchObject({ answered: '2026-11-10', daysLate: 2 })
     expect(situation.orders.find((order) => order.id === '1045')).toMatchObject({
       unstarted: 90,
-      forecastFinish: '2026-11-13T01:10',
+      forecastFinish: '2026-11-12T09:10',
       lateDays: 0,
     })
   })
@@ -50,8 +50,8 @@ describe('executeTool', () => {
     expect(result.changes).toEqual(['注番1045の材料が2日遅れる'])
     expect(result.newlyLate).toEqual(['1045'])
     expect(result.shifted.find((shift: { orderId: string }) => shift.orderId === '1045')).toMatchObject({
-      before: '2026-11-13T01:10',
-      after: '2026-11-17T07:00',
+      before: '2026-11-12T09:10',
+      after: '2026-11-15T15:00',
     })
     expect(state.adopted).toEqual([])
   })
@@ -61,9 +61,9 @@ describe('executeTool', () => {
     const current = JSON.parse(executeTool(TOOL_NAMES.getOrderPlan, { orderId: '1045' }, state).content)
     const delayed = JSON.parse(executeTool(TOOL_NAMES.getOrderPlan, { orderId: '1045', changes: [delay] }, state).content)
 
-    expect(current.forecastFinish).toBe('2026-11-13T01:10')
+    expect(current.forecastFinish).toBe('2026-11-12T09:10')
     expect(delayed.changes).toEqual(['注番1045の材料が2日遅れる'])
-    expect(delayed.forecastFinish).toBe('2026-11-17T07:00')
+    expect(delayed.forecastFinish).toBe('2026-11-15T15:00')
     expect(delayed.operations[0]).toMatchObject({ lot: 'L1045-1', planned: true, start: '2026-11-06T00:00' })
     expect(state.adopted).toEqual([])
   })
@@ -158,7 +158,7 @@ describe('executeTool', () => {
     ]
     const weekend = [
       { kind: 'holidayWork', equipmentId: 'MC-1', date: '2026-11-07' },
-      { kind: 'holidayWork', equipmentId: 'HT-1', date: '2026-11-08' },
+      { kind: 'holidayWork', equipmentId: 'DRL-1', date: '2026-11-08' },
     ]
     const simulated = JSON.parse(executeTool(TOOL_NAMES.simulateChanges, { changes: [...lend, ...weekend] }, state).content)
     const presented = executeTool(
@@ -167,9 +167,9 @@ describe('executeTool', () => {
       state,
     )
 
-    expect(simulated.unusedChanges).toEqual(['熱処理炉1を11/8に休日出勤で動かす'])
+    expect(simulated.unusedChanges).toEqual(['ボール盤1を11/8に休日出勤で動かす'])
     expect(presented.isError).toBe(true)
-    expect(presented.content).toContain('案「週末に取り戻す」の「熱処理炉1を11/8に休日出勤で動かす」')
+    expect(presented.content).toContain('案「週末に取り戻す」の「ボール盤1を11/8に休日出勤で動かす」')
     expect(presented.options).toBeUndefined()
   })
 

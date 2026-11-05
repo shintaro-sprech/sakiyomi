@@ -41,10 +41,10 @@ describe('deliveriesOf', () => {
     const forecast = plan.result.orders.find((order) => order.orderId === '1045')
     const deliveries = deliveriesOf(data, '1045', forecast)
 
-    // 1045 is forecast for 11/13: the first customer was promised 11/11, the second 11/13.
+    // 1045 is forecast for 11/12: the first customer was promised 11/10, the second 11/12.
     expect(deliveries.map((entry) => [entry.customer, entry.quantity, entry.answered, entry.daysLate])).toEqual([
-      ['取引先B', 45, '2026-11-11', 2],
-      ['取引先C', 45, '2026-11-13', 0],
+      ['取引先B', 45, '2026-11-10', 2],
+      ['取引先C', 45, '2026-11-12', 0],
     ])
   })
 
@@ -97,9 +97,10 @@ describe('releaseTiming', () => {
     const down = { kind: 'equipmentDown' as const, equipmentId: 'MC-1', from: today, to: '2026-11-27' }
     const timing = releaseTiming(state, { partNumber: 'D-410', quantity: 10, needBy: '2026-12-20' }, [down])
 
-    // D-410 has no material on hand and takes 10 days: from 12/2 that is Sunday 11/22, so Friday 11/20.
+    // D-410 has no material on hand and takes 10 days: from Tuesday 12/1 that is Saturday 11/21,
+    // so Friday 11/20.
     expect(timing).toEqual({
-      startAt: '2026-12-02T12:00',
+      startAt: '2026-12-01T20:00',
       materialOrderBy: '2026-11-20',
       materialLate: false,
       materialArrives: null,

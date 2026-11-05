@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createSampleData } from '../../sample-data/sample'
 import { createDefaultSettings } from '../engine/settings'
 import type { Settings } from '../engine/types'
-import { withShiftSettings, type SavedState } from './store'
+import { withSampleAdditions, withShiftSettings, type SavedState } from './store'
 
 const today = '2026-11-04'
 
@@ -21,6 +21,18 @@ function savedBeforeShifts(dataSource: SavedState['dataSource']): SavedState {
     dataSource,
   }
 }
+
+describe('withSampleAdditions', () => {
+  it('gives the crews of a sample saved before the holiday people the sample\'s, and keeps them once set', () => {
+    const fresh = createSampleData(today)
+    const saved = { ...savedBeforeShifts('sample'), data: { ...fresh, crews: fresh.crews.map(({ holidayPeople: _holiday, ...crew }) => crew) } }
+    const upgraded = withSampleAdditions(saved)
+
+    expect(upgraded.data.crews.map((crew) => crew.holidayPeople)).toEqual([1, 1, 1])
+    const changed = { ...saved, data: { ...fresh, crews: fresh.crews.map((crew) => ({ ...crew, holidayPeople: 0 })) } }
+    expect(withSampleAdditions(changed).data.crews.map((crew) => crew.holidayPeople)).toEqual([0, 0, 0])
+  })
+})
 
 describe('withShiftSettings', () => {
   it('makes a sample saved before shifts afresh and keeps the other settings', () => {

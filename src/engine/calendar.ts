@@ -1,6 +1,7 @@
-import { daysBetween, MINUTES_PER_DAY, parseClock, weekday } from './dates'
+import { crewOfEquipment, crewPeople } from './crews'
+import { addDays, daysBetween, MINUTES_PER_DAY, parseClock, weekday } from './dates'
 import type { Scenario } from './scenario'
-import { workHours } from './settings'
+import { holidayHours, workHours } from './settings'
 import type { IsoDate } from './types'
 
 // Working time of one piece of equipment, in minutes from 00:00 of the plan's first day.
@@ -10,12 +11,17 @@ export type Calendar = {
   firstWeekday: number
   workStart: number
   workEnd: number
+  // The hours the equipment's crew works on a day off it comes in on.
+  holidayStart: number
+  holidayEnd: number
   workWeekdays: number[]
   // Day indexes, both ends included.
   down: { from: number; to: number }[]
   overtime: { from: number; to: number; minutesPerDay: number }[]
-  // Days off that this equipment works anyway.
+  // Days off that this equipment works anyway, with a person of its own.
   extraDays: number[]
+  // Whether people of the equipment's crew come in on a day off, as holiday work.
+  crewComesIn: (day: number) => boolean
 }
 
 // Work that cannot fit within this many days is treated as unschedulable.
@@ -24,11 +30,14 @@ export const SEARCH_LIMIT_DAYS = 366
 export function equipmentCalendar(scenario: Scenario, equipmentId: string, planStart: IsoDate): Calendar {
   const day = (date: IsoDate) => daysBetween(planStart, date)
   const hours = workHours(scenario.settings)
+  const holiday = holidayHours(scenario.settings)
   return {
     planStart,
     firstWeekday: weekday(planStart),
     workStart: parseClock(hours.start),
     workEnd: parseClock(hours.end),
+    holidayStart: parseClock(holiday.start),
+    holidayEnd: parseClock(holiday.end),
     workWeekdays: scenario.settings.workWeekdays,
     down: scenario.downtime
       .filter((entry) => entry.equipmentId === equipmentId)
@@ -39,6 +48,22 @@ export function equipmentCalendar(scenario: Scenario, equipmentId: string, planS
     extraDays: scenario.holidayWork
       .filter((entry) => entry.equipmentId === equipmentId)
       .map((entry) => day(entry.date)),
+    crewComesIn: crewDaysOff(scenario, equipmentId, planStart),
+  }
+}
+
+// Days off on which people of the equipment's crew come in, worked out once a day.
+function crewDaysOff(scenario: Scenario, equipmentId: string, planStart: IsoDate): (day: number) => boolean {
+  const crew = crewOfEquipment(scenario.data).get(equipmentId)
+  if (!crew) return () => false
+  const known = new Map<number, boolean>()
+  return (day) => {
+    let comes = known.get(day)
+    if (comes === undefined) {
+      comes = crewPeople(scenario, crew, addDays(planStart, day)) > 0
+      known.set(day, comes)
+    }
+    return comes
   }
 }
 
@@ -48,15 +73,18 @@ export function isRegularDay(calendar: Calendar, day: number): boolean {
 }
 
 export function workingWindow(calendar: Calendar, day: number): { start: number; end: number } | null {
-  if (!isRegularDay(calendar, day) && !calendar.extraDays.includes(day)) return null
+  if (!isRegularDay(calendar, day) && !calendar.extraDays.includes(day) && !calendar.crewComesIn(day)) return null
   if (calendar.down.some((range) => day >= range.from && day <= range.to)) return null
   const extra = calendar.overtime
     .filter((range) => day >= range.from && day <= range.to)
     .reduce((total, range) => total + range.minutesPerDay, 0)
   const dayStart = day * MINUTES_PER_DAY
+  // On a day off only its crew comes in on, the crew's holiday hours.
+  const crewOnly = !isRegularDay(calendar, day) && !calendar.extraDays.includes(day)
+  const [start, end] = crewOnly ? [calendar.holidayStart, calendar.holidayEnd] : [calendar.workStart, calendar.workEnd]
   return {
-    start: dayStart + calendar.workStart,
-    end: Math.min(dayStart + calendar.workEnd + extra, dayStart + MINUTES_PER_DAY),
+    start: dayStart + start,
+    end: Math.min(dayStart + end + extra, dayStart + MINUTES_PER_DAY),
   }
 }
 
@@ -74,32 +102,15 @@ export function nextWorkingMinute(calendar: Calendar, t: number): number | null 
 const NIGHT_START = 22 * 60
 const NIGHT_END = 5 * 60
 
-// Splits the working time between start and end into regular hours, overtime
-// (past the end of a regular day) and holiday work (on a day off), in minutes, and
-// counts apart how much of it, of any kind, falls at night.
-export function splitWorkingMinutes(
-  calendar: Calendar,
-  start: number,
-  end: number,
-): { regular: number; overtime: number; holiday: number; night: number } {
-  const split = { regular: 0, overtime: 0, holiday: 0, night: 0 }
-  if (end <= start) return split
-  const overlap = (from: number, to: number) => Math.max(0, Math.min(end, to) - Math.max(start, from))
-  for (let day = Math.floor(start / MINUTES_PER_DAY); day <= Math.floor((end - 1) / MINUTES_PER_DAY); day += 1) {
-    const window = workingWindow(calendar, day)
-    if (!window) continue
-    const dayStart = day * MINUTES_PER_DAY
-    const worked = (from: number, to: number) => overlap(Math.max(window.start, from), Math.min(window.end, to))
-    split.night += worked(dayStart, dayStart + NIGHT_END) + worked(dayStart + NIGHT_START, dayStart + MINUTES_PER_DAY)
-    if (!isRegularDay(calendar, day)) {
-      split.holiday += overlap(window.start, window.end)
-      continue
-    }
-    const regularEnd = day * MINUTES_PER_DAY + calendar.workEnd
-    split.regular += overlap(window.start, Math.min(window.end, regularEnd))
-    split.overtime += overlap(regularEnd, window.end)
+// Minutes between start and end that fall at night, whatever day they are on.
+export function nightMinutes(start: number, end: number): number {
+  let total = 0
+  for (let day = Math.floor(start / MINUTES_PER_DAY) - 1; day <= Math.floor(end / MINUTES_PER_DAY); day += 1) {
+    const from = day * MINUTES_PER_DAY + NIGHT_START
+    const to = (day + 1) * MINUTES_PER_DAY + NIGHT_END
+    total += Math.max(0, Math.min(end, to) - Math.max(start, from))
   }
-  return split
+  return total
 }
 
 // The stretches of working time between start and end, one per day at most.

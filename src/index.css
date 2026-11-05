@@ -28,6 +28,18 @@
   --sk-fill-low: var(--mantine-color-red-1);
   --sk-fill-mid: var(--mantine-color-yellow-2);
   --sk-fill-high: var(--mantine-color-teal-1);
+  /* The factory floor: a paler and a darker paper, steel for material, cardboard for goods. */
+  --sk-floor: #F5F4ED;
+  --sk-floor-zone: #E8E6DC;
+  --sk-floor-line: #B0AEA5;
+  --sk-floor-text: #5E5D59;
+  --sk-floor-material: #9C9A92;
+  --sk-floor-carton: #C69C6D;
+  /* A machine's state, as a signal lamp shows it, each 3:1 or more on the cards. */
+  --sk-state-running: var(--mantine-color-teal-6);
+  --sk-state-setup: var(--mantine-color-orange-6);
+  --sk-state-idle: var(--mantine-color-gray-6);
+  --sk-state-stopped: var(--mantine-color-red-6);
   --sk-class-a-fill: var(--mantine-color-red-1);
   --sk-class-b-fill: var(--mantine-color-orange-1);
   /* Light enough that colored text and badges on a chosen row keep 4.5:1 (WCAG 1.4.3). */
@@ -71,6 +83,12 @@
   --sk-mascot-face: #1F1E1D;
   /* Done chips: white text at 4.5:1, and 3:1 against the dark cards. */
   --sk-done: var(--mantine-color-teal-6);
+  --sk-floor: #3D3D3A;
+  --sk-floor-zone: #30302E;
+  --sk-floor-line: #73726C;
+  --sk-floor-text: #C2C0B6;
+  --sk-state-running: var(--mantine-color-teal-5);
+  --sk-state-idle: var(--mantine-color-dark-2);
 }
 
 /* The page and the header sit on the ground color; cards, panels and the menu stay the body color. */
@@ -906,6 +924,9 @@ tr.is-chosen .mantine-Anchor-root {
   transform: translateX(calc(-100% - 3px));
 }
 
+/* Days off in the crew table: the same shade as on the Gantt chart. */
+th.is-off,
+td.is-off,
 .gantt-day.is-off,
 .gantt-shade {
   background: var(--sk-muted-surface);
@@ -1432,6 +1453,11 @@ tr.is-before > * {
   min-width: 0;
 }
 
+/* Each term of the formula stays whole; lines break only between terms, before the minus. */
+.profit-formula > span {
+  white-space: nowrap;
+}
+
 .profit-value {
   font-family: var(--mantine-font-family-headings);
   font-weight: 500;
@@ -1778,4 +1804,221 @@ tr.is-before > * {
   .flow-short {
     animation: none;
   }
+}
+
+/* The factory floor in 3D, with the same in words under it, in the floor's order. */
+.factory {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+}
+
+.factory-stage {
+  position: relative;
+  /* As wide as the floor is long; narrower screens show it a little taller. */
+  aspect-ratio: 2.1 / 1;
+  max-height: 74vh;
+  min-height: 220px;
+  border: 1px solid var(--sk-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--sk-surface);
+  overflow: hidden;
+}
+
+/* The canvas and the names over it fill the stage; the zoom control sits in its corner. */
+.factory-drawing {
+  position: absolute;
+  inset: 0;
+}
+
+/* One finger scrolls the page over the floor too; two zoom it. The controls set none on the
+   box round the canvas that they listen on, so this wins over that. */
+.factory-drawing > div,
+.factory-drawing canvas {
+  touch-action: pan-y !important;
+}
+
+.factory-zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 2;
+  display: flex;
+}
+
+.factory-loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+}
+
+@media (max-width: 48em) {
+  .factory-stage {
+    aspect-ratio: 3 / 2;
+  }
+}
+
+.factory-now {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 1;
+  padding: 1px 8px;
+  border-radius: 3px;
+  background: var(--mantine-color-text);
+  color: var(--mantine-color-body);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.factory-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: var(--mantine-spacing-md) var(--mantine-spacing-lg);
+  padding: var(--mantine-spacing-md);
+}
+
+.factory-list-head {
+  margin-bottom: 4px;
+}
+
+.factory-machines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.factory-machine {
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--mantine-radius-sm);
+  font-size: var(--mantine-font-size-sm);
+}
+
+.factory-machine:hover {
+  background: var(--sk-muted-surface);
+}
+
+.factory-machine[data-selected] {
+  background: var(--sk-muted-surface);
+  box-shadow: inset 3px 0 0 var(--sk-focus);
+}
+
+.factory-machine-state {
+  color: var(--sk-text-dimmed);
+  font-size: var(--mantine-font-size-xs);
+  white-space: nowrap;
+}
+
+.factory-machine-lot,
+.factory-machine-wait {
+  grid-column: 2 / -1;
+  font-size: var(--mantine-font-size-xs);
+}
+
+.factory-machine-wait {
+  color: var(--sk-text-dimmed);
+}
+
+.factory-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--sk-state-idle);
+}
+
+.factory-dot.state-running {
+  background: var(--sk-state-running);
+}
+
+.factory-dot.state-setup {
+  background: var(--sk-state-setup);
+}
+
+.factory-dot.state-stopped {
+  background: var(--sk-state-stopped);
+}
+
+/* Off: the lamp is dark, a ring rather than a dot. */
+.factory-dot.state-off {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--sk-state-idle);
+}
+
+.factory-label .factory-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  vertical-align: 1px;
+}
+
+.factory-store {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 12px;
+  margin: 0;
+  padding: 0 8px;
+  font-size: var(--mantine-font-size-xs);
+}
+
+.factory-store > div {
+  display: contents;
+}
+
+.factory-store dd {
+  margin: 0;
+  text-align: right;
+}
+
+.tone-late {
+  color: var(--sk-danger);
+}
+
+.tone-tight {
+  color: var(--sk-warn);
+}
+
+/* Names and lots over the floor. */
+.factory-label,
+.factory-tag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2px 6px;
+  border: 1px solid var(--sk-border);
+  border-radius: 4px;
+  background: var(--mantine-color-body);
+  color: var(--mantine-color-text);
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.factory-tag {
+  font-size: 11px;
+}
+
+.factory-queue {
+  font-variant-numeric: tabular-nums;
+}
+
+.factory-label.is-selected {
+  border-color: var(--sk-focus);
+  box-shadow: 0 0 0 1px var(--sk-focus);
+}
+
+.factory-label-lot {
+  font-variant-numeric: tabular-nums;
+}
+
+.factory-label-more {
+  color: var(--sk-text-dimmed);
 }

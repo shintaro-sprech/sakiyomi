@@ -53,12 +53,12 @@ function load(): SavedState {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as SavedState
-      if (parsed.version === 3) return withSampleAdditions(withProcessLists(withShiftSettings(parsed)))
+      if (parsed.version === 3) return withSampleAdditions(withProcessLists(withHolidayShifts(withShiftSettings(parsed))))
     }
     const previous = window.localStorage.getItem(PREVIOUS_KEY)
     if (previous) {
       const parsed = JSON.parse(previous) as Omit<SavedState, 'version'> & { version: number }
-      if (parsed.version === 2) return withSampleAdditions(withProcessLists(withShiftSettings(fromVersion2(parsed))))
+      if (parsed.version === 2) return withSampleAdditions(withProcessLists(withHolidayShifts(withShiftSettings(fromVersion2(parsed)))))
     }
   } catch {
     // Fall through to a fresh sample.
@@ -87,6 +87,14 @@ export function withShiftSettings(saved: SavedState, today = localToday()): Save
   }
 }
 
+// Settings saved before the crews' holiday hours were kept: their crews work the day shift
+// on days off, as new settings do.
+function withHolidayShifts(saved: SavedState): SavedState {
+  const settings: Partial<Settings> = saved.settings
+  if (settings.holidayShifts !== undefined) return saved
+  return { ...saved, settings: { ...saved.settings, holidayShifts: createDefaultSettings().holidayShifts } }
+}
+
 // Machines saved before one could take several processes had a single process and no
 // speed. A saved sample takes the sample's machines, routes and crews' processes, none of
 // which the app edits, so its multi-tasking machine has work; the crews keep their people.
@@ -113,13 +121,13 @@ function withProcessLists(saved: SavedState): SavedState {
 }
 
 // A sample saved before the sample had something gets it, each part on its own: the part
-// each machine ran last, material on hand and its lead time. Something the planner cleared,
+// each machine ran last, material on hand and its lead time, the crews' holiday people. Something the planner cleared,
 // such as a machine's last part set to none, is kept as empty and not filled in again. The
 // steps lots have been through, the customer orders and the distributors' reports are not
 // edited in the app, so they are made afresh from the saved lots and orders and from today:
 // their dates fit a sample saved on another day. An order with no customer orders saved
 // keeps none.
-function withSampleAdditions(saved: SavedState): SavedState {
+export function withSampleAdditions(saved: SavedState): SavedState {
   if (saved.dataSource !== 'sample') return saved
   const sample = createSampleData(localToday())
   let data = saved.data
@@ -134,6 +142,10 @@ function withSampleAdditions(saved: SavedState): SavedState {
   if (!data.parts.some((part) => 'materialLeadDays' in part)) {
     const lead = new Map(sample.parts.map((part) => [part.partNumber, part.materialLeadDays]))
     data = { ...data, parts: data.parts.map((part) => ({ ...part, materialLeadDays: lead.get(part.partNumber) })) }
+  }
+  if (!data.crews.some((crew) => 'holidayPeople' in crew)) {
+    const holiday = new Map(sample.crews.map((crew) => [crew.name, crew.holidayPeople]))
+    data = { ...data, crews: data.crews.map((crew) => ({ ...crew, holidayPeople: holiday.get(crew.name) })) }
   }
   const customerOrders = sampleCustomerOrders(data.orders)
   const served = data.customerOrders && new Set(data.customerOrders.map((entry) => entry.orderId))

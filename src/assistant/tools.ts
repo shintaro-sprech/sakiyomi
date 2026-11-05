@@ -3,7 +3,7 @@ import { weekday } from '../engine/dates'
 import { orderDemands, replenishments, type Replenishment } from '../engine/demand'
 import { monthlyOutlook, unusedChanges, type MonthlyOutlook } from '../engine/economics'
 import { releaseTiming, runPlan, type PlanState, type ReleaseTiming } from '../engine/plan'
-import { SHIFT_STARTS, workHours } from '../engine/settings'
+import { holidayHours, SHIFT_STARTS, workHours } from '../engine/settings'
 import { summarizeProgress } from '../engine/progress'
 import { channelOutlook, deliveriesOf } from '../engine/records'
 import { ChangeError, describeChange, parseChange, sameChange, type Change } from '../engine/scenario'
@@ -132,6 +132,7 @@ export function describeSituation(state: PlanState) {
     weekday: WEEKDAY_NAMES[weekday(state.today)],
     shifts: settings.shifts === 1 ? '日勤' : `${settings.shifts}交代（${SHIFT_STARTS[settings.shifts].join('・')}に交代）`,
     workHours: `${workHours(settings).start}-${workHours(settings).end}`,
+    holidayWorkHours: `${holidayHours(settings).start}-${holidayHours(settings).end}`,
     workdays: settings.workWeekdays.map((day) => WEEKDAY_NAMES[day]).join(''),
     transferMinutes: settings.transferMinutes,
     dueWeight: settings.dueWeight,
@@ -147,12 +148,13 @@ export function describeSituation(state: PlanState) {
       name: crew.name,
       processes: crew.processes,
       usualPeople: crew.people,
+      holidayPeople: crew.holidayPeople ?? 0,
       equipment: data.equipment
         .filter((equipment) => equipment.processes.some((process) => crew.processes.includes(process)))
         .map((equipment) => equipment.id),
       days: result.crewDays
         .filter((day) => day.crew === crew.name)
-        .map((day) => ({ date: day.date, people: day.people, mostRunningAtOnce: day.peak })),
+        .map((day) => ({ date: day.date, holiday: day.holiday, people: day.people, mostRunningAtOnce: day.peak })),
     })),
     equipment: data.equipment.map((equipment) => {
       const operations = result.operations.filter((operation) => operation.equipmentId === equipment.id)
@@ -235,7 +237,8 @@ function summarizeOutlook(
     month: outlook.month,
     revenue: outlook.revenue,
     materialCost: outlook.materialCost,
-    laborCost: outlook.laborCost,
+    overtimePay: outlook.overtimePay,
+    holidayPay: outlook.holidayPay,
     machineRunningCost: outlook.machineCost,
     grossProfit: outlook.grossProfit,
     overtimeHours: outlook.overtimeHours,

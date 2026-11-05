@@ -23,10 +23,11 @@ import { useDisclosure } from '@mantine/hooks'
 import { IconDownload, IconRefresh, IconUpload } from '@tabler/icons-react'
 import { useState } from 'react'
 
+import { addDays, weekday } from '../engine/dates'
 import { SHIFT_STARTS } from '../engine/settings'
 import type { Crew, IsoDate, Settings } from '../engine/types'
 import type { AppState } from '../state/store'
-import { shortDate, weekdayName, workingDays } from './format'
+import { shortDate, weekdayName } from './format'
 import { NumberField } from './NumberField'
 
 type PartNumberKey = 'price' | 'materialCost' | 'stock' | 'monthlyUsage'
@@ -120,24 +121,27 @@ export function SettingsView({ app }: { app: AppState }) {
     })
   }
 
-  const setCrewPeople = (name: string, value: number) => {
+  const setCrewPeople = (name: string, key: 'people' | 'holidayPeople', value: number) => {
     app.updateData({
       ...data,
-      crews: data.crews.map((crew) => (crew.name === name ? { ...crew, people: clamp(value, 0, 99) } : crew)),
+      crews: data.crews.map((crew) => (crew.name === name ? { ...crew, [key]: clamp(value, 0, 99) } : crew)),
     })
   }
 
-  // A day's number equal to the usual one needs no entry of its own.
+  // The days the Gantt chart shows, days off among them: a crew may come in on a day off.
+  const days = Array.from({ length: settings.horizonDays }, (_, index) => addDays(app.planState.today, index))
+  const isDayOff = (date: IsoDate) => !settings.workWeekdays.includes(weekday(date))
+  const usualPeople = (crew: Crew, date: IsoDate) => (isDayOff(date) ? (crew.holidayPeople ?? 0) : crew.people)
+
+  // A day's number equal to the usual one for that day needs no entry of its own.
   const setAttendance = (crew: Crew, date: IsoDate, value: number) => {
     const people = clamp(value, 0, 99)
     const others = data.attendance.filter((entry) => !(entry.crew === crew.name && entry.date === date))
     app.updateData({
       ...data,
-      attendance: people === crew.people ? others : [...others, { crew: crew.name, date, people }],
+      attendance: people === usualPeople(crew, date) ? others : [...others, { crew: crew.name, date, people }],
     })
   }
-
-  const days = workingDays(app.planState.today, settings)
 
   async function onImport(file: File | null) {
     if (!file) return
@@ -209,13 +213,31 @@ export function SettingsView({ app }: { app: AppState }) {
                 </Grid.Col>
               </>
             ) : (
-              <Grid.Col span={{ base: 12, lg: 6 }}>
-                <Input.Wrapper label="交代の時刻" labelElement="div">
-                  <Text h={36} display="flex" style={{ alignItems: 'center' }} className="tabular">
-                    {SHIFT_STARTS[settings.shifts].map((start) => start.replace(/^0/, '')).join('　')}
-                  </Text>
-                </Input.Wrapper>
-              </Grid.Col>
+              <>
+                <Grid.Col span={{ base: 6, lg: 3 }}>
+                  <Input.Wrapper label="交代の時刻" labelElement="div">
+                    <Text h={36} display="flex" style={{ alignItems: 'center' }} className="tabular">
+                      {SHIFT_STARTS[settings.shifts].map((start) => start.replace(/^0/, '')).join('　')}
+                    </Text>
+                  </Input.Wrapper>
+                </Grid.Col>
+                <Grid.Col span={{ base: 6, lg: 3 }}>
+                  <Input.Wrapper label="休日の勤務" labelElement="div" labelProps={{ id: 'holiday-shifts-label' }}>
+                    <SegmentedControl
+                      mt={4}
+                      fullWidth
+                      color="primary"
+                      value={String(settings.holidayShifts)}
+                      onChange={(value) => set('holidayShifts', Number(value) as Settings['holidayShifts'])}
+                      data={[
+                        { value: '1', label: '日勤' },
+                        { value: '3', label: '3交代' },
+                      ]}
+                      aria-labelledby="holiday-shifts-label"
+                    />
+                  </Input.Wrapper>
+                </Grid.Col>
+              </>
             )}
             <Grid.Col span={{ base: 12, lg: 6 }}>
               <Input.Wrapper label="稼働する曜日" labelProps={{ id: 'workdays-label' }}>
@@ -273,7 +295,7 @@ export function SettingsView({ app }: { app: AppState }) {
             </Grid.Col>
             <Grid.Col span={{ base: 6, lg: 3 }}>
               <NumberField
-                label="労務費（1人1時間）"
+                label="賃率（1人1時間）"
                 suffix=" 円"
                 thousandSeparator=","
                 min={0}
@@ -479,15 +501,16 @@ export function SettingsView({ app }: { app: AppState }) {
             班と出勤
           </Title>
           <Paper withBorder>
-            <Table.ScrollContainer minWidth={320 + days.length * 60}>
+            <Table.ScrollContainer minWidth={416 + days.length * 60}>
               <Table verticalSpacing="xs" horizontalSpacing={6}>
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th className="sticky-col">班</Table.Th>
                     <Table.Th>担当工程</Table.Th>
                     <Table.Th w={96}>{settings.shifts === 1 ? 'いつも' : '1直'}</Table.Th>
+                    <Table.Th w={96}>休日</Table.Th>
                     {days.map((date) => (
-                      <Table.Th key={date} w={60} ta="center" className="tabular">
+                      <Table.Th key={date} w={60} ta="center" className={`tabular${isDayOff(date) ? ' is-off' : ''}`}>
                         {shortDate(date)}
                         <Text span display="block" size="xs" c="dimmed">
                           {weekdayName(date)}
@@ -510,21 +533,32 @@ export function SettingsView({ app }: { app: AppState }) {
                           min={0}
                           max={99}
                           value={crew.people}
-                          onCommit={(value) => setCrewPeople(crew.name, value)}
+                          onCommit={(value) => setCrewPeople(crew.name, 'people', value)}
                           aria-label={settings.shifts === 1 ? `${crew.name}のいつもの人数` : `${crew.name}の1直の人数`}
+                        />
+                      </Table.Td>
+                      <Table.Td>
+                        <NumberField
+                          size="xs"
+                          suffix=" 人"
+                          min={0}
+                          max={99}
+                          value={crew.holidayPeople ?? 0}
+                          onCommit={(value) => setCrewPeople(crew.name, 'holidayPeople', value)}
+                          aria-label={settings.shifts === 1 ? `${crew.name}の休日の人数` : `${crew.name}の休日の1直の人数`}
                         />
                       </Table.Td>
                       {days.map((date) => {
                         const entry = data.attendance.find((item) => item.crew === crew.name && item.date === date)
-                        const differs = entry !== undefined && entry.people !== crew.people
+                        const differs = entry !== undefined && entry.people !== usualPeople(crew, date)
                         return (
-                          <Table.Td key={date}>
+                          <Table.Td key={date} className={isDayOff(date) ? 'is-off' : undefined}>
                             <NumberField
                               size="xs"
                               hideControls
                               min={0}
                               max={99}
-                              value={entry?.people ?? crew.people}
+                              value={entry?.people ?? usualPeople(crew, date)}
                               onCommit={(value) => setAttendance(crew, date, value)}
                               aria-label={`${crew.name}の${shortDate(date)}の人数`}
                               styles={{ input: { textAlign: 'center', fontWeight: differs ? 700 : undefined } }}

@@ -51,10 +51,10 @@ describe('converse', () => {
   it('hands the options from present_options to the screen', async () => {
     const options = [
       {
-        title: '土曜に動かす',
-        changes: [{ kind: 'holidayWork', equipmentId: 'MC-1', date: '2026-11-07' }],
+        title: '1045を優先する',
+        changes: [{ kind: 'expedite', orderId: '1045' }],
         reason: '切削が詰まっている',
-        tradeoff: '休日出勤が増える',
+        tradeoff: 'ほかの注番が後ろにずれる',
       },
     ]
     vi.stubGlobal(
@@ -68,7 +68,7 @@ describe('converse', () => {
 
     await converse([{ role: 'user', content: '案を出して' }], () => state, { onHistory: vi.fn(), onOptions })
 
-    expect(onOptions).toHaveBeenCalledWith('call-2', [expect.objectContaining({ title: '土曜に動かす' })])
+    expect(onOptions).toHaveBeenCalledWith('call-2', [expect.objectContaining({ title: '1045を優先する' })])
   })
 
   it('shows the error the server sent', async () => {

@@ -1,6 +1,6 @@
 import { Badge, Button, Group, Paper, SimpleGrid, Stack, Table, Text, Title, VisuallyHidden } from '@mantine/core'
 import { IconCheck, IconUser, IconUserFilled } from '@tabler/icons-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 import { addDays, daysBetween, MINUTES_PER_DAY, parseClock, weekday } from '../engine/dates'
 import {
@@ -97,7 +97,7 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
       changes: [change],
       labels: [describeChange(change, data)],
       reason: `来月末までの出荷に、在庫と注残では${item.quantity}個足りない`,
-      tradeoff: `${material}作る分の材料費・労務費・設備の運転費がかかり、同じ設備を使う注番が後ろにずれることがある`,
+      tradeoff: `${material}作る分の材料費と設備の運転費がかかり、同じ設備を使う注番が後ろにずれることがある`,
       note: '',
     })
     setAdded(item.partNumber)
@@ -109,17 +109,13 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
   )
   const crewDays = plan.result.crewDays
   const crewDates = [...new Set(crewDays.map((day) => day.date))]
+  // Days off the crews come in on, shaded as on the Gantt chart.
+  const holidayDates = new Set(crewDays.filter((day) => day.holiday).map((day) => day.date))
   // Each day is as wide as its largest crew's marks need, so one busy day does not widen the rest.
   const tableWidth = crewDates.reduce((width, date) => {
     const people = Math.max(0, ...crewDays.filter((day) => day.date === date).map((day) => day.people))
     return width + Math.max(48, people * PERSON_SIZE + 12)
   }, CREW_COLUMN_WIDTH)
-  const premium = Math.round(
-    settings.laborRate *
-      (outlook.overtimeHours * settings.overtimePremium +
-        outlook.holidayHours * settings.holidayPremium +
-        outlook.nightHours * settings.nightPremium),
-  )
 
   return (
     <Stack gap="lg">
@@ -133,10 +129,22 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
             {formatYen(shownProfit)}
           </Text>
           <VisuallyHidden>{formatYen(outlook.grossProfit)}</VisuallyHidden>
-          <Text size="sm" c="dimmed" className="tabular phrase">
-            売上 {formatYen(outlook.revenue)} − 材料費 {formatYen(outlook.materialCost)} − 労務費{' '}
-            {formatYen(outlook.laborCost)}
-            {premium > 0 ? `（うち割増 ${formatYen(premium)}）` : ''} − 設備の運転費 {formatYen(outlook.machineCost)}
+          <Text size="sm" c="dimmed" className="tabular profit-formula">
+            {[
+              ['売上', outlook.revenue],
+              ['材料費', outlook.materialCost],
+              ...(settings.shifts === 1 ? [['残業', outlook.overtimePay] as const] : []),
+              ['休日出勤', outlook.holidayPay],
+              ['設備の運転費', outlook.machineCost],
+            ].map(([label, value], index) => (
+              <Fragment key={label}>
+                {index > 0 && ' '}
+                <span>
+                  {index > 0 && '− '}
+                  {label} {formatYen(Number(value))}
+                </span>
+              </Fragment>
+            ))}
           </Text>
           <SimpleGrid cols={2} spacing="sm" mt="sm">
             <Metric
@@ -146,7 +154,7 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
               tone={outlook.lateOrders.length > 0 ? 'red' : undefined}
             />
             <Metric
-              label="来月末までに欠品する型番"
+              label="来月末までの欠品"
               value={new Set(outlook.shortages.map((shortage) => shortage.partNumber)).size}
               unit="品目"
               tone={outlook.shortages.length > 0 ? 'red' : undefined}
@@ -154,7 +162,7 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
             {settings.shifts === 1 ? (
               <Metric label="残業" value={outlook.overtimeHours} unit="時間" />
             ) : (
-              <Metric label="深夜" value={outlook.nightHours} unit="時間" />
+              <Metric label="今月の完成" value={outlook.completedPieces} unit="個" />
             )}
             <Metric label="休日出勤" value={outlook.holidayHours} unit="時間" />
           </SimpleGrid>
@@ -240,7 +248,7 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
                       班
                     </Table.Th>
                     {crewDates.map((date) => (
-                      <Table.Th key={date} ta="center" className="tabular">
+                      <Table.Th key={date} ta="center" className={`tabular${holidayDates.has(date) ? ' is-off' : ''}`}>
                         {shortDate(date)}
                         <Text span display="block" size="xs" c="dimmed">
                           {weekdayName(date)}
@@ -258,7 +266,7 @@ export function OutlookView({ plan, today, timingOf, onAdopt }: Props) {
                       {crewDates.map((date) => {
                         const day = crewDays.find((item) => item.crew === crew.name && item.date === date)
                         return (
-                          <Table.Td key={date} ta="center">
+                          <Table.Td key={date} ta="center" className={holidayDates.has(date) ? 'is-off' : undefined}>
                             {day && <People day={day} />}
                           </Table.Td>
                         )
@@ -528,7 +536,7 @@ function Metric({ label, value, unit, tone }: { label: string; value: number; un
         {label}
       </Text>
       <Text c={tone} className="metric-value tabular">
-        {value}
+        {value.toLocaleString('ja-JP')}
         <Text span size="sm" c="dimmed" ml={4}>
           {unit}
         </Text>

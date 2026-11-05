@@ -6,6 +6,7 @@ import {
   Burger,
   Button,
   Group,
+  Loader,
   NavLink,
   Tabs,
   Text,
@@ -17,6 +18,7 @@ import {
 import { useDisclosure, useMediaQuery, useReducedMotion } from '@mantine/hooks'
 import {
   IconAdjustmentsHorizontal,
+  IconBuildingFactory2,
   IconCalendarStats,
   IconChartBar,
   IconClipboardList,
@@ -25,7 +27,7 @@ import {
   IconMoon,
   IconSun,
 } from '@tabler/icons-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { changesToApply, type ProposedOption } from './assistant/tools'
 import type { Replenishment } from './engine/demand'
@@ -40,11 +42,15 @@ import { OutlookView } from './ui/OutlookView'
 import { ProgressView } from './ui/ProgressView'
 import { SettingsView } from './ui/SettingsView'
 
-type Tab = 'outlook' | 'progress' | 'gantt' | 'decisions' | 'settings'
+// The floor in 3D loads three.js only when its tab opens.
+const FactoryView = lazy(() => import('./ui/FactoryView'))
+
+type Tab = 'outlook' | 'progress' | 'factory' | 'gantt' | 'decisions' | 'settings'
 
 const TABS: { value: Tab; label: string; icon: ReactNode }[] = [
   { value: 'outlook', label: '今月の計画', icon: <IconCalendarStats size={16} /> },
   { value: 'progress', label: '進捗', icon: <IconChartBar size={16} /> },
+  { value: 'factory', label: '現場', icon: <IconBuildingFactory2 size={16} /> },
   { value: 'gantt', label: 'ガント', icon: <IconLayoutKanban size={16} /> },
   { value: 'decisions', label: '判断の記録', icon: <IconClipboardList size={16} /> },
   { value: 'settings', label: '設定とデータ', icon: <IconAdjustmentsHorizontal size={16} /> },
@@ -295,6 +301,11 @@ function App() {
             warningDays={saved.settings.stagnationWarningDays}
             focus={progressFocus}
           />
+        )}
+        {tab === 'factory' && (
+          <Suspense fallback={<Loader size="sm" m="xl" />}>
+            <FactoryView plan={plan} today={planState.today} />
+          </Suspense>
         )}
         {tab === 'gantt' && (
           <GanttView plan={plan} today={planState.today} highlight={preview} onShowInProgress={showInProgress} />
