@@ -1,6 +1,6 @@
-import { Badge, Button, Group, Paper, SimpleGrid, Stack, Table, Text, Title, VisuallyHidden } from '@mantine/core'
+import { Badge, Button, Group, Paper, Popover, SimpleGrid, Stack, Table, Text, Title, VisuallyHidden } from '@mantine/core'
 import { IconCheck, IconUser, IconUserFilled } from '@tabler/icons-react'
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import { addDays, daysBetween, MINUTES_PER_DAY, parseClock, weekday } from '../engine/dates'
 import { stockoutWithDeals, type DealDemand } from '../engine/dealDemand'
@@ -22,7 +22,7 @@ import { describeChange, type Change } from '../engine/scenario'
 import type { CrewDay } from '../engine/scheduler'
 import type { IsoDate, Order, Part } from '../engine/types'
 import type { Decision } from '../state/store'
-import { dateInYear, formatYen, pieces, shortDate, shortDateTime, weekdayName } from './format'
+import { dateInYear, formatYen, largeYen, pieces, shortDate, shortDateTime, weekdayName } from './format'
 import { TodayFocus } from './TodayFocus'
 import { useCountUp } from './useCountUp'
 
@@ -171,30 +171,28 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand, onShow
       <div className="outlook-hero">
         <TodayFocus items={focus} today={today} onSelect={(item) => goTo(item, onShowOrder)} />
         <Paper withBorder p="lg" className="profit-card">
-          <Text size="sm" c="dimmed">
-            {outlook.month.replace('-', '年')}月の粗利
-          </Text>
+          <Group justify="space-between" wrap="nowrap" gap="xs">
+            <Text size="sm" c="dimmed">
+              {outlook.month.replace('-', '年')}月の粗利
+            </Text>
+            <Text size="sm" c="dimmed" className="tabular nowrap">
+              売上 {largeYen(outlook.revenue)}
+            </Text>
+          </Group>
           <Text className="profit-value tabular" aria-hidden="true">
             {formatYen(shownProfit)}
           </Text>
           <VisuallyHidden>{formatYen(outlook.grossProfit)}</VisuallyHidden>
-          <Text size="sm" c="dimmed" className="tabular profit-formula">
-            {[
-              ['売上', outlook.revenue],
+          <ProfitBar
+            revenue={outlook.revenue}
+            profit={outlook.grossProfit}
+            costs={[
               ['材料費', outlook.materialCost],
               ...(settings.shifts === 1 ? [['残業', outlook.overtimePay] as const] : []),
               ['休日出勤', outlook.holidayPay],
               ['設備の運転費', outlook.machineCost],
-            ].map(([label, value], index) => (
-              <Fragment key={label}>
-                {index > 0 && ' '}
-                <span>
-                  {index > 0 && '− '}
-                  {label} {formatYen(Number(value))}
-                </span>
-              </Fragment>
-            ))}
-          </Text>
+            ]}
+          />
           <SimpleGrid cols={2} spacing="sm" mt="sm">
             <Metric label="納期か回答に遅れる注番" value={lateOrPromised} unit="件" tone={lateOrPromised > 0 ? 'red' : undefined} />
             <Metric
@@ -492,6 +490,129 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand, onShow
 
 function rowId(table: string, key: string): string {
   return `${table}-row-${key}`
+}
+
+// The month's sales as one bar, cut into what is left as gross profit (ink) and the costs the
+// plan moves (gray), so the bar itself says profit is sales less those costs. The bar is one
+// button: hovering it with a mouse, or pressing it (a tap, Enter or Space), shows the amounts
+// as a statement; moving away, pressing it again or Escape closes them (WCAG 1.4.13).
+function ProfitBar({ revenue, profit, costs }: { revenue: number; profit: number; costs: (readonly [string, number])[] }) {
+  const [hovered, setHovered] = useState(false)
+  const [pinned, setPinned] = useState(false)
+  const closing = useRef<number | null>(null)
+  const statementId = useId()
+  const opened = hovered || pinned
+  useEffect(() => {
+    if (!opened) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setHovered(false)
+      setPinned(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [opened])
+  const stay = () => {
+    if (closing.current !== null) window.clearTimeout(closing.current)
+  }
+  const leave = () => {
+    stay()
+    closing.current = window.setTimeout(() => setHovered(false), 300)
+  }
+  const shown = costs.filter(([, value]) => value > 0)
+  const segments = [['粗利', Math.max(0, profit)] as const, ...shown]
+  const whole = Math.max(revenue, segments.reduce((total, [, value]) => total + value, 0))
+  if (whole <= 0) return null
+  const share = revenue > 0 ? Math.round((profit / revenue) * 100) : null
+  const statement = (
+    <table className="profit-statement tabular">
+      <tbody>
+        <tr>
+          <th scope="row">売上</th>
+          <td>{formatYen(revenue)}</td>
+        </tr>
+        {shown.map(([label, value]) => (
+          <tr key={label}>
+            <th scope="row">{label}</th>
+            <td>−{formatYen(value)}</td>
+          </tr>
+        ))}
+        <tr className="profit-statement-total">
+          <th scope="row">粗利</th>
+          <td>{formatYen(profit)}</td>
+        </tr>
+      </tbody>
+    </table>
+  )
+  return (
+    <div className="profit-bar-block">
+      <Popover
+        opened={opened}
+        onChange={(next) => {
+          if (next) return
+          setHovered(false)
+          setPinned(false)
+        }}
+        position="bottom-start"
+        offset={4}
+        withRoles={false}
+        shadow="sm"
+      >
+        <Popover.Target>
+          <button
+            type="button"
+            className="profit-bar"
+            aria-label="粗利の内訳"
+            aria-describedby={statementId}
+            aria-expanded={opened}
+            onPointerEnter={(event) => {
+              if (event.pointerType !== 'mouse') return
+              stay()
+              setHovered(true)
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType === 'mouse') leave()
+            }}
+            onClick={() => {
+              if (pinned) {
+                setHovered(false)
+                setPinned(false)
+              } else setPinned(true)
+            }}
+            onBlur={() => setPinned(false)}
+          >
+            <span className="profit-track">
+              {segments.map(([label, value]) => (
+                <span key={label} className={label === '粗利' ? 'profit-piece profit-piece-profit' : 'profit-piece'} style={{ flexGrow: value / whole }} />
+              ))}
+            </span>
+          </button>
+        </Popover.Target>
+        <Popover.Dropdown
+          // Pressing the statement keeps focus on the bar, so it stays open.
+          onMouseDown={(event) => event.preventDefault()}
+          onPointerEnter={(event) => {
+            if (event.pointerType === 'mouse') stay()
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === 'mouse') leave()
+          }}
+          px="sm"
+          py={8}
+        >
+          {statement}
+        </Popover.Dropdown>
+      </Popover>
+      <VisuallyHidden id={statementId} aria-hidden="true">
+        {[`売上 ${formatYen(revenue)}`, ...shown.map(([label, value]) => `${label} ${formatYen(value)}`), `粗利 ${formatYen(profit)}`].join('、')}
+      </VisuallyHidden>
+      {share !== null && (
+        <Text size="sm" mt={4} className="tabular" c={profit < 0 ? 'red' : undefined}>
+          粗利 {share}%
+        </Text>
+      )}
+    </div>
+  )
 }
 
 // Where a focus item is dealt with: the part's row in the stock outlook or the distributor's

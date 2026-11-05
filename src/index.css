@@ -1568,9 +1568,96 @@ tr.is-before > * {
   min-width: 0;
 }
 
-/* Each term of the formula stays whole; lines break only between terms, before the minus. */
-.profit-formula > span {
-  white-space: nowrap;
+/* The month's sales as one bar: gross profit in ink, the costs in gray, cut by dark lines.
+   The button around it is 24px tall so it is easy to hit (WCAG 2.5.8). */
+.profit-bar-block {
+  margin-top: 4px;
+}
+
+.profit-bar {
+  display: block;
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.profit-bar:focus-visible {
+  outline: 2px solid var(--sk-focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.profit-track {
+  display: flex;
+  gap: 1px;
+  height: 16px;
+  padding: 1px;
+  /* The frame, sales, stands at 3:1 or more on the card, as do the cuts between gray pieces. */
+  border: 1px solid var(--mantine-color-gray-7);
+  border-radius: 5px;
+  background: var(--mantine-color-gray-7);
+}
+
+.profit-piece {
+  min-width: 2px;
+  background: var(--mantine-color-gray-3);
+}
+
+.profit-piece:first-child {
+  border-radius: 3px 0 0 3px;
+}
+
+.profit-piece:last-child {
+  border-radius: 0 3px 3px 0;
+}
+
+.profit-piece-profit {
+  background: var(--mantine-color-text);
+}
+
+/* With forced colors the gray pieces would turn the same as profit: keep profit solid text color. */
+@media (forced-colors: active) {
+  .profit-track {
+    forced-color-adjust: none;
+    border-color: CanvasText;
+    background: CanvasText;
+  }
+
+  .profit-piece {
+    background: Canvas;
+  }
+
+  .profit-piece-profit {
+    background: CanvasText;
+  }
+}
+
+/* The amounts behind the bar, as a statement: costs taken off sales, gross profit under a rule. */
+.profit-statement {
+  border-collapse: collapse;
+  font-size: var(--mantine-font-size-sm);
+}
+
+.profit-statement th {
+  padding: 1px 16px 1px 0;
+  font-weight: 400;
+  text-align: left;
+  color: var(--mantine-color-dimmed);
+}
+
+.profit-statement td {
+  padding: 1px 0;
+  text-align: right;
+}
+
+.profit-statement-total th,
+.profit-statement-total td {
+  padding-top: 4px;
+  border-top: 1px solid var(--mantine-color-gray-7);
+  font-weight: 700;
+  color: var(--mantine-color-text);
 }
 
 .profit-value {
