@@ -214,7 +214,7 @@ function App({ onLogout }: { onLogout?: () => void }) {
               aria-controls="app-menu"
             />
             <Group gap={8} wrap="nowrap">
-              <img className="app-logo" src="/favicon.svg" alt="" width={26} height={26} />
+              <img className="app-logo" src="/sakiyomi-mark.svg" alt="" width={26} height={26} />
               <Text component="h1" fw={700} size="lg" style={{ whiteSpace: 'nowrap' }}>
                 サキヨミ
               </Text>

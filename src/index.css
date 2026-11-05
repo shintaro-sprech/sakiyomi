@@ -106,12 +106,6 @@
   color: var(--mantine-primary-color-contrast);
 }
 
-/* The slate mark needs an edge to stand off the warm black header. */
-:root[data-mantine-color-scheme='dark'] .app-logo {
-  border-radius: 7px;
-  box-shadow: 0 0 0 1px var(--mantine-color-dark-3);
-}
-
 /* Scrolling to a focused element keeps it clear of the fixed 56px header. */
 html {
   scroll-padding-top: 64px;
