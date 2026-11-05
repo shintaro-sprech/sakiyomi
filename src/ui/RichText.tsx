@@ -1,37 +1,36 @@
 import { Fragment, type ReactNode } from 'react'
 
-// Renders the small part of Markdown Claude tends to use in short replies:
-// paragraphs, "- " and "1. " lists, and **bold**.
+import { boldRuns, richBlocks } from './replyText'
+
+// Renders Claude's short replies: paragraphs, lists and **bold** (see replyText.ts).
 export function RichText({ text }: { text: string }) {
-  const blocks = text.trim().split(/\n{2,}/)
   return (
     <>
-      {blocks.map((block, index) => {
-        const lines = block.split('\n')
-        if (lines.every((line) => /^\s*\d+[.)]\s/.test(line))) {
+      {richBlocks(text).map((block, index) => {
+        if (block.kind === 'numbers') {
           return (
-            <ol key={index}>
-              {lines.map((line, lineIndex) => (
-                <li key={lineIndex}>{inline(line.replace(/^\s*\d+[.)]\s/, ''))}</li>
+            <ol key={index} start={block.start === 1 ? undefined : block.start}>
+              {block.items.map((item, itemIndex) => (
+                <li key={itemIndex}>{inline(item)}</li>
               ))}
             </ol>
           )
         }
-        if (lines.every((line) => /^\s*[-・*]\s/.test(line))) {
+        if (block.kind === 'bullets') {
           return (
             <ul key={index}>
-              {lines.map((line, lineIndex) => (
-                <li key={lineIndex}>{inline(line.replace(/^\s*[-・*]\s/, ''))}</li>
+              {block.items.map((item, itemIndex) => (
+                <li key={itemIndex}>{inline(item)}</li>
               ))}
             </ul>
           )
         }
         return (
           <p key={index}>
-            {lines.map((line, lineIndex) => (
+            {block.lines.map((line, lineIndex) => (
               <Fragment key={lineIndex}>
                 {lineIndex > 0 && <br />}
-                {inline(line.replace(/^#+\s*/, ''))}
+                {inline(line)}
               </Fragment>
             ))}
           </p>
@@ -42,7 +41,5 @@ export function RichText({ text }: { text: string }) {
 }
 
 function inline(line: string): ReactNode[] {
-  return line.split(/(\*\*[^*]+\*\*)/).map((part, index) =>
-    part.startsWith('**') && part.endsWith('**') ? <strong key={index}>{part.slice(2, -2)}</strong> : part,
-  )
+  return boldRuns(line).map((run, index) => (run.bold ? <strong key={index}>{run.text}</strong> : <Fragment key={index}>{run.text}</Fragment>))
 }
