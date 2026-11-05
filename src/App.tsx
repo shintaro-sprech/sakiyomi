@@ -23,6 +23,7 @@ import {
   IconChartLine,
   IconClipboardList,
   IconLayoutKanban,
+  IconLogout,
   IconMessageCircle,
 } from '@tabler/icons-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -63,7 +64,7 @@ const TABS: { value: Tab; label: string; icon: ReactNode }[] = [
   { value: 'settings', label: '設定とデータ', icon: <IconAdjustmentsHorizontal size={16} /> },
 ]
 
-function App() {
+function App({ onLogout }: { onLogout?: () => void }) {
   const app = useAppState()
   const theme = useMantineTheme()
   // Below xl the panel would squeeze the progress table, and below md it covers the screen.
@@ -264,6 +265,11 @@ function App() {
             >
               <IconMessageCircle size={18} />
             </ActionIcon>
+            {onLogout && (
+              <ActionIcon variant="default" size="lg" onClick={onLogout} aria-label="ログアウト">
+                <IconLogout size={18} />
+              </ActionIcon>
+            )}
           </Group>
         </Group>
       </AppShell.Header>

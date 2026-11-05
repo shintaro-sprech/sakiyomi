@@ -1,0 +1,135 @@
+/*
+ * The entrance: the scene fills the screen, and the name, one line and the button stand at the
+ * foot of it on the page's ivory.
+ */
+
+.entrance {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #FAF9F5;
+  color: #141413;
+  /* One finger turns the scene; two still zoom the page. */
+  touch-action: pinch-zoom;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.entrance-stage {
+  position: absolute;
+  inset: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.entrance-still {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* The moving scene fades in over the still picture once its first frame is drawn. */
+.entrance-scene {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.9s ease-out;
+}
+
+.entrance-scene[data-ready='true'] {
+  opacity: 1;
+}
+
+/* Ivory rising from the bottom left under the words, so they read at full contrast over the
+   floor; on a narrow screen, across the whole width. */
+.entrance-stage::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 62% 48% at 0% 100%, #FAF9F5 55%, rgb(250 249 245 / 0) 100%);
+  pointer-events: none;
+}
+
+@media (max-aspect-ratio: 1/1) {
+  .entrance-stage::after {
+    background: linear-gradient(to top, #FAF9F5 0%, #FAF9F5 26%, rgb(250 249 245 / 0) 40%);
+  }
+}
+
+.entrance-copy {
+  position: absolute;
+  left: max(24px, 6vw, env(safe-area-inset-left));
+  bottom: max(32px, 7vh, calc(env(safe-area-inset-bottom) + 20px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: min(36rem, calc(100vw - 48px));
+  /* The words keep their ivory under them however large the text is set, with a soft edge; at
+     the usual sizes this lies inside the wash and does not show. */
+  border-radius: 16px;
+  background: #FAF9F5;
+  box-shadow: 0 0 28px 20px #FAF9F5;
+}
+
+.entrance .entrance-title {
+  margin: 0;
+  color: #141413;
+  font-size: min(clamp(2.75rem, 2rem + 3.4vw, 4.75rem), 13vh);
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+}
+
+.entrance .entrance-lead {
+  margin: 0 0 10px;
+  color: #3D3D3A;
+  font-size: clamp(1rem, 0.9rem + 0.35vw, 1.2rem);
+  line-height: 1.6;
+  /* Breaks between phrases (at the <wbr>), and inside a word only when the text is set so large
+     that a phrase does not fit the width. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.entrance .entrance-button:focus-visible {
+  outline: 3px solid #141413;
+  outline-offset: 3px;
+}
+
+/* On a low, wide screen (a phone on its side, or a page zoomed far in) the words stand at the
+   left on the ivory, and the scene is framed to their right (EntranceScene.tsx). */
+@media (max-height: 500px) and (min-aspect-ratio: 6/5) {
+  /* Solid under the whole width of the words, however far the page is zoomed in. */
+  .entrance-stage::after {
+    background: linear-gradient(
+      to right,
+      #FAF9F5 0,
+      #FAF9F5 calc(max(44vw, 17rem) + 32px),
+      rgb(250 249 245 / 0) calc(max(44vw, 17rem) + 16vw)
+    );
+  }
+
+  .entrance-copy {
+    top: 0;
+    bottom: 0;
+    right: auto;
+    justify-content: center;
+    max-width: max(44vw, 17rem);
+  }
+}
+
+/* On a phone the button spans the width, where the thumb is. */
+@media (max-width: 36em) {
+  .entrance-copy {
+    right: max(24px, env(safe-area-inset-right));
+    align-items: stretch;
+  }
+}
+
+/* Into the app: a short crossfade, none where less motion is asked for (main.tsx). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 0.35s;
+}

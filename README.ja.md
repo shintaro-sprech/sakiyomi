@@ -37,7 +37,7 @@ English: [README.md](README.md)
 
 ## ブラウザで試す
 
-https://sakiyomi.shintaro-solopreneur.workers.dev を開きます。最初は架空のサンプルデータで始まり、変えた内容はそのブラウザの中にだけ保存されます。相談パネルの一番上の「注番1045の材料が2日遅れると連絡がありました」を押してみてください。
+https://sakiyomi.shintaro-solopreneur.workers.dev を開き、「アプリを見る」を押します（https://sakiyomi.shintaro-solopreneur.workers.dev/app を開くと、アプリが直接開きます）。最初は架空のサンプルデータで始まり、変えた内容はそのブラウザの中にだけ保存されます。相談パネルの一番上の「注番1045の材料が2日遅れると連絡がありました」を押してみてください。
 
 ## 手元で試す
 
@@ -49,7 +49,7 @@ cp .dev.vars.example .dev.vars   # .dev.vars に Anthropic の API キーを書�
 npm run dev
 ```
 
-http://localhost:5173 を開きます。進捗・ガント・設定・Excel はキーがなくても動きます。キーが要るのは「Claude に相談」だけです。最初は架空のサンプルデータで始まるので、相談パネルの一番上の「注番1045の材料が2日遅れると連絡がありました」を押してみてください。
+http://localhost:5173 を開き、「アプリを見る」を押します。進捗・ガント・設定・Excel はキーがなくても動きます。キーが要るのは「Claude に相談」だけです。最初は架空のサンプルデータで始まるので、相談パネルの一番上の「注番1045の材料が2日遅れると連絡がありました」を押してみてください。
 
 スケジューラ・ツール・Excel の読み書きのテストは `npm test` で実行します。
 

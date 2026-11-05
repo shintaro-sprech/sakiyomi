@@ -37,7 +37,7 @@ The tools run in the browser against the same scheduler that draws the screens, 
 
 ## Try it online
 
-Open https://sakiyomi.shintaro-solopreneur.workers.dev. The app starts with fictional sample data, and what you change is saved only in your browser. In the "Claude に相談" (Ask Claude) panel, try the first suggested message, "注番1045の材料が2日遅れると連絡がありました" (the material for order 1045 is two days late).
+Open https://sakiyomi.shintaro-solopreneur.workers.dev and press "アプリを見る" (Open the app); https://sakiyomi.shintaro-solopreneur.workers.dev/app opens the app directly. The app starts with fictional sample data, and what you change is saved only in your browser. In the "Claude に相談" (Ask Claude) panel, try the first suggested message, "注番1045の材料が2日遅れると連絡がありました" (the material for order 1045 is two days late).
 
 ## Try it locally
 
@@ -49,7 +49,7 @@ cp .dev.vars.example .dev.vars   # then put your Anthropic API key in .dev.vars
 npm run dev
 ```
 
-Open http://localhost:5173. Progress, Gantt, settings and Excel work without a key; only "Ask Claude" needs one. The app starts with fictional sample data. Try the first suggested message, "注番1045の材料が2日遅れると連絡がありました" (the material for order 1045 is two days late).
+Open http://localhost:5173 and press "アプリを見る" (Open the app). Progress, Gantt, settings and Excel work without a key; only "Ask Claude" needs one. The app starts with fictional sample data. Try the first suggested message, "注番1045の材料が2日遅れると連絡がありました" (the material for order 1045 is two days late).
 
 Tests for the scheduler, the tools and the Excel round trip: `npm test`.
 
