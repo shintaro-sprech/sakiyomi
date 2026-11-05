@@ -31,6 +31,20 @@ describe('todayFocus', () => {
     ])
   })
 
+  it('keeps asking for the material once what a part lacks is added to the plan', () => {
+    const items = focus([{ kind: 'addOrder', partNumber: 'B-200', quantity: 164, due: '2026-11-25' }])
+    const material = items.find((item) => item.kind === 'orderMaterial')
+
+    expect(material).toMatchObject({ partNumber: 'B-200', onHand: 60, toOrder: 104, orderIds: ['追加1'] })
+
+    // Once the material is recorded as ordered, the reminder ends and the plan waits for it.
+    const ordered = focus([
+      { kind: 'addOrder', partNumber: 'B-200', quantity: 164, due: '2026-11-25' },
+      { kind: 'materialOrdered', orderId: '追加1', arrives: '2026-11-10' },
+    ])
+    expect(ordered.some((item) => item.kind === 'orderMaterial' && item.partNumber === 'B-200' && item.orderIds)).toBe(false)
+  })
+
   it('lists an order late for its due date once, not its promises as well', () => {
     const items = focus([{ kind: 'materialDelay', orderId: '1045', days: 5 }])
 

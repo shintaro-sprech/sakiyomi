@@ -11,8 +11,6 @@ import {
   Tabs,
   Text,
   VisuallyHidden,
-  useComputedColorScheme,
-  useMantineColorScheme,
   useMantineTheme,
 } from '@mantine/core'
 import { useDisclosure, useMediaQuery, useReducedMotion } from '@mantine/hooks'
@@ -26,8 +24,6 @@ import {
   IconClipboardList,
   IconLayoutKanban,
   IconMessageCircle,
-  IconMoon,
-  IconSun,
 } from '@tabler/icons-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
@@ -55,12 +51,14 @@ const FactoryView = lazy(() => import('./ui/FactoryView'))
 type Tab = 'outlook' | 'deals' | 'demand' | 'progress' | 'factory' | 'gantt' | 'decisions' | 'settings'
 
 const TABS: { value: Tab; label: string; icon: ReactNode }[] = [
+  // In the order of a planner's day: this month, where the work is, the floor and the
+  // machines' schedule, then the deals and demand further ahead, and the record of calls.
   { value: 'outlook', label: '今月の計画', icon: <IconCalendarStats size={16} /> },
-  { value: 'deals', label: '商談', icon: <IconBriefcase size={16} /> },
-  { value: 'demand', label: '需要予測', icon: <IconChartLine size={16} /> },
   { value: 'progress', label: '進捗', icon: <IconChartBar size={16} /> },
   { value: 'factory', label: '現場', icon: <IconBuildingFactory2 size={16} /> },
   { value: 'gantt', label: 'ガント', icon: <IconLayoutKanban size={16} /> },
+  { value: 'deals', label: '商談', icon: <IconBriefcase size={16} /> },
+  { value: 'demand', label: '需要予測', icon: <IconChartLine size={16} /> },
   { value: 'decisions', label: '判断の記録', icon: <IconClipboardList size={16} /> },
   { value: 'settings', label: '設定とデータ', icon: <IconAdjustmentsHorizontal size={16} /> },
 ]
@@ -86,8 +84,6 @@ function App() {
   const mainRef = useRef<HTMLElement>(null)
   const burgerRef = useRef<HTMLButtonElement>(null)
   const focusBanner = useRef(false)
-  const { setColorScheme } = useMantineColorScheme()
-  const dark = useComputedColorScheme('light') === 'dark'
   const { planState, saved } = app
   const insights = useDealInsights(saved.data, planState.today, dealThreshold)
   // The deals' demand is handed to the plan once a day, and again that day when it changes.
@@ -222,10 +218,14 @@ function App() {
                 サキヨミ
               </Text>
               {saved.dataSource === 'sample' && (
-                <Badge variant="light" color="gray" visibleFrom="lg">
+                <Badge variant="light" color="gray" fz="xs" visibleFrom="lg">
                   サンプルデータ
                 </Badge>
               )}
+              {/* Where the tabs are folded into the menu, the screen's name stays beside the logo. */}
+              <Text fw={700} hiddenFrom="xl" aria-hidden="true" className="nowrap">
+                ／{TABS.find((item) => item.value === tab)?.label}
+              </Text>
             </Group>
             <Tabs
               value={tab}
@@ -243,14 +243,6 @@ function App() {
             </Tabs>
           </Group>
           <Group gap={8} wrap="nowrap">
-            <ActionIcon
-              variant="default"
-              size="lg"
-              onClick={() => setColorScheme(dark ? 'light' : 'dark')}
-              aria-label={dark ? 'ライト表示にする' : 'ダーク表示にする'}
-            >
-              {dark ? <IconSun size={18} /> : <IconMoon size={18} />}
-            </ActionIcon>
             <Button
               variant={chatOpen ? 'default' : 'filled'}
               leftSection={<IconMessageCircle size={18} />}
@@ -335,6 +327,7 @@ function App() {
             timingOf={timingOf}
             onAdopt={preview ? undefined : app.adopt}
             dealDemand={insights.handoffDemand}
+            onShowOrder={(orderId) => showInProgress(orderId, '')}
           />
         )}
         {tab === 'deals' && (

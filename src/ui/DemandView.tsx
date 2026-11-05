@@ -1,9 +1,10 @@
 import { Alert, Badge, Button, Group, Paper, SegmentedControl, SimpleGrid, Stack, Table, Tabs, Text, Title, VisuallyHidden } from '@mantine/core'
 import { IconCheck } from '@tabler/icons-react'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { addMonths } from '../engine/dealDemand'
 import { forecastDemand, seriesChecks, type DemandForecast } from '../engine/forecast'
+import { buildScenario } from '../engine/scenario'
 import { currentVersion, forecastVersion, methodName, monthsFrom, openOrdersByMonth, type HandoffKind, type HandoffVersion } from '../engine/handoff'
 import type { IsoDate } from '../engine/types'
 import type { AppState } from '../state/store'
@@ -23,6 +24,15 @@ export function DemandView({ app, today }: { app: AppState; today: IsoDate }) {
   const data = app.saved.data
   const forecast = useMemo(() => forecastDemand(data.orderHistory ?? [], horizon), [data.orderHistory, horizon])
   const versions = app.saved.handoffs ?? []
+  // The forecast as it stands is already the one handed over, so handing it again adds nothing.
+  const handed = currentVersion(versions, 'forecast')
+  const alreadyHanded =
+    handed !== null &&
+    JSON.stringify(handed.rows) === JSON.stringify(forecastVersion(forecast, today, '').rows) &&
+    handed.conditions === forecastVersion(forecast, today, '').conditions
+  const hand = () => {
+    if (!alreadyHanded) app.saveHandoff(forecastVersion(forecast, today, nowAt()))
+  }
   return (
     <Stack gap="md">
       <Title order={2} size="h4">
@@ -35,15 +45,24 @@ export function DemandView({ app, today }: { app: AppState; today: IsoDate }) {
           <Tabs.Tab value="history">受注の実績</Tabs.Tab>
         </Tabs.List>
         <Tabs.Panel value="handoff" pt="md">
-          <HandoffPanel app={app} today={today} versions={versions} />
+          <HandoffPanel
+            app={app}
+            today={today}
+            versions={versions}
+            horizon={horizon}
+            handed={alreadyHanded}
+            onHand={hand}
+          />
         </Tabs.Panel>
         <Tabs.Panel value="forecast" pt="md">
           <ForecastPanel
             forecast={forecast}
             horizon={horizon}
             onHorizon={setHorizon}
-            handed={currentVersion(versions, 'forecast')}
-            onHand={() => app.saveHandoff(forecastVersion(forecast, today, nowAt()))}
+            handed={handed}
+            alreadyHanded={alreadyHanded}
+            onHand={hand}
+            onShowHandoff={() => setView('handoff')}
           />
         </Tabs.Panel>
         <Tabs.Panel value="history" pt="md">
@@ -60,12 +79,15 @@ function VersionCard({
   viewing,
   onBack,
   headingRef,
+  action,
 }: {
   kind: HandoffKind
   version: HandoffVersion | null
   viewing: boolean
   onBack: () => void
   headingRef: React.RefObject<HTMLParagraphElement | null>
+  // A button that makes a new version, where the planner makes one.
+  action?: React.ReactNode
 }) {
   return (
     <Paper withBorder p="md">
@@ -89,10 +111,12 @@ function VersionCard({
             </Text>
           )}
         </Stack>
-        {viewing && (
+        {viewing ? (
           <Button size="xs" variant="default" onClick={onBack}>
             今の版に戻す
           </Button>
+        ) : (
+          action
         )}
       </Group>
     </Paper>
@@ -101,15 +125,47 @@ function VersionCard({
 
 // The plan's open orders, the deals' version and the forecast's version, part by part and
 // month by month, in rows of their own: they are never added up.
-function HandoffPanel({ app, today, versions }: { app: AppState; today: IsoDate; versions: HandoffVersion[] }) {
+// Once handed over, the button gives way to a line saying so, which takes keyboard focus.
+function useFocusWhen(condition: boolean) {
+  const ref = useRef<HTMLParagraphElement>(null)
+  const was = useRef(condition)
+  useEffect(() => {
+    if (condition && !was.current) ref.current?.focus()
+    was.current = condition
+  }, [condition])
+  return ref
+}
+
+function HandoffPanel({
+  app,
+  today,
+  versions,
+  horizon,
+  handed,
+  onHand,
+}: {
+  app: AppState
+  today: IsoDate
+  versions: HandoffVersion[]
+  horizon: number
+  // The forecast as it stands has been handed over already.
+  handed: boolean
+  onHand: () => void
+}) {
   const [viewing, setViewing] = useState<Partial<Record<HandoffKind, string>>>({})
   const headings = { deals: useRef<HTMLParagraphElement>(null), forecast: useRef<HTMLParagraphElement>(null) }
+  const handedRef = useFocusWhen(handed)
   const data = app.saved.data
   const months = monthsFrom(today, PLAN_MONTHS)
   const pick = (kind: HandoffKind) => versions.find((entry) => entry.id === viewing[kind]) ?? currentVersion(versions, kind)
   const deals = pick('deals')
   const forecast = pick('forecast')
-  const orders = openOrdersByMonth(data, today)
+  // The plan's open orders, with those the decisions added.
+  const planned = useMemo(
+    () => buildScenario(data, app.saved.settings, app.planState.adopted, today, []).data,
+    [data, app.saved.settings, app.planState.adopted, today],
+  )
+  const orders = openOrdersByMonth(planned, today)
   const parts = data.parts.map((part) => part.partNumber)
   const extra = [...new Set([...(deals?.rows ?? []), ...(forecast?.rows ?? [])].map((row) => row.partNumber))].filter((partNumber) => !parts.includes(partNumber))
   // The shown version changes under the button pressed, so keyboard focus goes to its card.
@@ -143,6 +199,19 @@ function HandoffPanel({ app, today, versions }: { app: AppState; today: IsoDate;
             viewing={Boolean(viewing[kind])}
             onBack={() => show(kind, undefined)}
             headingRef={headings[kind]}
+            action={
+              kind === 'forecast' ? (
+                handed ? (
+                  <Text size="sm" c="teal" fw={700} className="nowrap" tabIndex={-1} ref={handedRef}>
+                    <IconCheck size={14} style={{ verticalAlign: '-2px' }} aria-hidden="true" /> 渡しました
+                  </Text>
+                ) : (
+                  <Button size="xs" onClick={onHand} className="nowrap">
+                    {horizon}か月の予測を渡す
+                  </Button>
+                )
+              ) : undefined
+            }
           />
         ))}
       </SimpleGrid>
@@ -178,12 +247,16 @@ function HandoffPanel({ app, today, versions }: { app: AppState; today: IsoDate;
                     {months.map((month) => {
                       // A month the forecast does not reach is blank, not 0.
                       if (line.label === '需要予測' && forecast && !line.rows.some((row) => row.month === month)) {
-                        return <Table.Td key={month} />
+                        return (
+                          <Table.Td key={month} ta="right" c="dimmed">
+                            —
+                          </Table.Td>
+                        )
                       }
                       const value = sum(line.rows, month)
                       return (
                         <Table.Td key={month} ta="right" className="tabular" c={value === 0 ? 'dimmed' : undefined} fw={index === 0 && value > 0 ? 700 : undefined}>
-                          {value === 0 ? '-' : pieces(value)}
+                          {value === 0 ? '—' : pieces(value)}
                         </Table.Td>
                       )
                     })}
@@ -250,15 +323,18 @@ function ForecastPanel({
   horizon,
   onHorizon,
   handed,
+  alreadyHanded,
   onHand,
+  onShowHandoff,
 }: {
   forecast: DemandForecast
   horizon: number
   onHorizon: (months: number) => void
   handed: HandoffVersion | null
+  alreadyHanded: boolean
   onHand: () => void
+  onShowHandoff: () => void
 }) {
-  const [justHanded, setJustHanded] = useState(false)
   if (forecast.series.length === 0) {
     return (
       <Alert color="orange" variant="light">
@@ -268,6 +344,40 @@ function ForecastPanel({
   }
   const { backtest } = forecast
   return (
+    <ForecastBody
+      forecast={forecast}
+      backtest={backtest}
+      horizon={horizon}
+      onHorizon={onHorizon}
+      handed={handed}
+      alreadyHanded={alreadyHanded}
+      onHand={onHand}
+      onShowHandoff={onShowHandoff}
+    />
+  )
+}
+
+function ForecastBody({
+  forecast,
+  backtest,
+  horizon,
+  onHorizon,
+  handed,
+  alreadyHanded,
+  onHand,
+  onShowHandoff,
+}: {
+  forecast: DemandForecast
+  backtest: DemandForecast['backtest']
+  horizon: number
+  onHorizon: (months: number) => void
+  handed: HandoffVersion | null
+  alreadyHanded: boolean
+  onHand: () => void
+  onShowHandoff: () => void
+}) {
+  const handedRef = useFocusWhen(alreadyHanded)
+  return (
     <Stack gap="lg">
       <Group justify="space-between" wrap="wrap" align="flex-end">
         <SegmentedControl
@@ -275,26 +385,25 @@ function ForecastPanel({
           aria-label="予測する月数"
           data={[1, 2, 3, 4, 5, 6].map((months) => ({ value: String(months), label: `${months}か月` }))}
           value={String(horizon)}
-          onChange={(value) => {
-            onHorizon(Number(value))
-            setJustHanded(false)
-          }}
+          onChange={(value) => onHorizon(Number(value))}
         />
         <Group gap="sm">
           {/* Always there, so a screen reader reads the time each time a forecast is handed over. */}
           <Text size="sm" c="dimmed" className="tabular" aria-live="polite">
             {handed ? `渡した版 ${shortDateTime(handed.createdAt)}` : ''}
           </Text>
-          <Button
-            onClick={() => {
-              onHand()
-              setJustHanded(true)
-            }}
-            leftSection={justHanded ? <IconCheck size={16} /> : undefined}
-            variant={justHanded ? 'default' : 'filled'}
-          >
-            {justHanded ? '渡しました' : '計画に渡す'}
-          </Button>
+          {alreadyHanded ? (
+            <Text c="teal" fw={700} className="nowrap" tabIndex={-1} ref={handedRef}>
+              <IconCheck size={16} style={{ verticalAlign: '-3px' }} aria-hidden="true" /> 渡しました
+            </Text>
+          ) : (
+            <Button onClick={onHand}>{horizon}か月の予測を渡す</Button>
+          )}
+          {alreadyHanded && (
+            <Button variant="subtle" onClick={onShowHandoff}>
+              受け渡しを見る
+            </Button>
+          )}
         </Group>
       </Group>
       <Text size="sm">{forecast.reason}</Text>
@@ -327,7 +436,7 @@ function ForecastPanel({
                     </Table.Th>
                     {[model, average].map((value, index) => (
                       <Table.Td key={index} ta="right" className="tabular" fw={(index === 0) === (backtest.chosen === 'model') ? 700 : undefined}>
-                        {value === null ? '-' : label === '誤差の割合' ? `${pieces(value * 100)}%` : pieces(value)}
+                        {value === null ? '—' : label === '誤差の割合' ? `${pieces(value * 100)}%` : pieces(value)}
                       </Table.Td>
                     ))}
                   </Table.Tr>
@@ -443,7 +552,7 @@ function HistoryPanel({ forecast }: { forecast: DemandForecast }) {
                       {pieces(recent.reduce((total, month) => total + month.ordered, 0) / Math.max(1, recent.length))}
                     </Table.Td>
                     <Table.Td ta="right" className="tabular">
-                      {checks.variation === null ? '-' : `${pieces(checks.variation * 100)}%`}
+                      {checks.variation === null ? '—' : `${pieces(checks.variation * 100)}%`}
                     </Table.Td>
                     <Table.Td>
                       {checks.warnings.length === 0 ? (
@@ -500,7 +609,7 @@ function HistoryPanel({ forecast }: { forecast: DemandForecast }) {
                         const value = byMonth.get(month)?.[key]
                         return (
                           <Table.Td key={month} ta="right" className="tabular" c={value === undefined ? 'dimmed' : undefined}>
-                            {value === undefined ? '-' : pieces(value)}
+                            {value === undefined ? '—' : pieces(value)}
                           </Table.Td>
                         )
                       })}

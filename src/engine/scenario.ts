@@ -5,6 +5,9 @@ import type { Crew, Equipment, IsoDate, Order, PlantData, Settings } from './typ
 // all speak in these.
 export type Change =
   | { kind: 'materialDelay'; orderId: string; days: number }
+  // Material ordered for an order that had none coming, arriving on the day given. The
+  // planner records it from the screen; Claude does not propose it.
+  | { kind: 'materialOrdered'; orderId: string; arrives: IsoDate }
   | { kind: 'quantity'; orderId: string; quantity: number }
   | { kind: 'equipmentDown'; equipmentId: string; from: IsoDate; to: IsoDate }
   | { kind: 'overtime'; equipmentId: string; from: IsoDate; to: IsoDate; minutesPerDay: number }
@@ -101,6 +104,10 @@ function applyChange(scenario: Scenario, change: Change, today: IsoDate): void {
     case 'materialDelay': {
       const order = findOrder(scenario.data, change.orderId)
       order.materialOn = addDays(order.materialOn ?? today, change.days)
+      return
+    }
+    case 'materialOrdered': {
+      findOrder(scenario.data, change.orderId).materialOn = change.arrives
       return
     }
     case 'quantity': {
@@ -208,6 +215,8 @@ export function parseChange(input: unknown): Change {
   switch (value.kind) {
     case 'materialDelay':
       return { kind: 'materialDelay', orderId: text('orderId'), days: integer('days') }
+    case 'materialOrdered':
+      return { kind: 'materialOrdered', orderId: text('orderId'), arrives: date('arrives') }
     case 'quantity':
       return { kind: 'quantity', orderId: text('orderId'), quantity: integer('quantity') }
     case 'equipmentDown':
@@ -241,6 +250,8 @@ export function describeChange(change: Change, data: PlantData): string {
       return change.days >= 0
         ? `注番${change.orderId}の材料が${change.days}日遅れる`
         : `注番${change.orderId}の材料が${-change.days}日早く届く`
+    case 'materialOrdered':
+      return `注番${change.orderId}の材料を発注（${Number(change.arrives.slice(5, 7))}/${Number(change.arrives.slice(8, 10))}着）`
     case 'quantity':
       return `注番${change.orderId}の数量を${change.quantity}個にする`
     case 'equipmentDown':

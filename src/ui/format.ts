@@ -62,7 +62,7 @@ export function chance(ratio: number): string {
 
 // The day as 11/12 in this year and as 2025/11/12 in any other.
 export function dateInYear(date: IsoDate | null | undefined, today: IsoDate): string {
-  if (!date) return '-'
+  if (!date) return '—'
   return date.slice(0, 4) === today.slice(0, 4) ? shortDate(date) : `${date.slice(0, 4)}/${shortDate(date)}`
 }
 

@@ -32,7 +32,7 @@ export function DecisionsView({ decisions, onRemove }: Props) {
         <Text c="dimmed">まだ記録はありません</Text>
       ) : (
         [...decisions].reverse().map((decision) => (
-          <Card key={decision.id} withBorder padding="md">
+          <Card key={decision.id} withBorder padding="md" className="decision-card">
             <Stack gap={8}>
               <Group justify="space-between" wrap="nowrap">
                 <Text fw={700}>{decision.title}</Text>

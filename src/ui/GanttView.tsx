@@ -16,7 +16,7 @@ import {
 } from '@mantine/core'
 import { useElementSize, useReducedMotion } from '@mantine/hooks'
 import { IconCheck, IconChevronDown, IconHistory, IconMinus, IconPlus } from '@tabler/icons-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 
 import type { ProposedOption } from '../assistant/tools'
 import { equipmentCalendar, workingWindow } from '../engine/calendar'
@@ -51,16 +51,26 @@ const SPANS = [
   { label: '1週間', days: 7 },
   { label: '2週間', days: 14 },
 ]
-// The equipment column and the track's left margin, which the days share the rest beside.
-const LABEL_WIDTH = 196
+// The equipment column: narrower on a phone, so the bars keep room for their text.
+const LABEL_WIDTH = 180
+const NARROW_LABEL_WIDTH = 96
+const NARROW_CHART = 600
+// The track starts this far right of the equipment column, and the days share what is left
+// beside both margins.
+const TRACK_MARGIN = 8
 // Narrower than this, a day's date and bars no longer read; the chart scrolls instead.
 const MIN_DAY_WIDTH = 48
 const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土']
 const NOW_TAG_WIDTH = 64
 // The narrowest day whose date fits with its weekday, as 11/14（土）; narrower days show
 // the date only, and days off stand apart by their shade.
-const WEEKDAY_FITS = 76
+const WEEKDAY_FITS = 84
 const TONE_NAMES = { late: '、納期に遅れる', tight: '、納期まで1日以内', ok: '' }
+// Narrower than this beside its setup, about a whole Lot number (with 予定 after it on a planned
+// bar), a bar shows no text rather than a part of it; its name stays in its tooltip and for
+// screen readers.
+const BAR_TEXT_FITS = 64
+const PLANNED_BAR_TEXT_FITS = 76
 const NO_FOCUS = 'none'
 
 export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
@@ -76,13 +86,15 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
   const { scenario, result } = plan
   const { settings, data } = scenario
   const days = settings.horizonDays
+  const narrow = chartWidth > 0 && chartWidth < NARROW_CHART
+  const labelWidth = narrow ? NARROW_LABEL_WIDTH : LABEL_WIDTH
+  const trackLeft = labelWidth + TRACK_MARGIN
+  const usable = chartWidth - trackLeft - TRACK_MARGIN
   // Until the chart has been measured, a day takes the width it used to have.
   const dayWidth =
-    chartWidth > 0
-      ? Math.max(MIN_DAY_WIDTH, Math.floor((chartWidth - LABEL_WIDTH) / Math.min(SPANS[span].days, days)))
-      : 150
+    chartWidth > 0 ? Math.max(MIN_DAY_WIDTH, Math.floor(usable / Math.min(SPANS[span].days, days))) : 150
   // The most days that fit side by side; a span wider than the one reaching it shows no more.
-  const daysThatFit = Math.min(chartWidth > 0 ? Math.floor((chartWidth - LABEL_WIDTH) / MIN_DAY_WIDTH) : days, days)
+  const daysThatFit = Math.min(chartWidth > 0 ? Math.floor(usable / MIN_DAY_WIDTH) : days, days)
   const showsMore = (index: number) => index === 0 || SPANS[index - 1].days < daysThatFit
 
   // Closing a panel returns focus to what opened it.
@@ -218,6 +230,9 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
 
   return (
     <Stack gap="md">
+      <Title order={2} size="h4">
+        ガント
+      </Title>
       <Group gap="md" wrap="wrap" align="flex-end">
         <Group gap={0} wrap="nowrap" role="group" aria-label="表示の幅" className="span-control">
           <ActionIcon
@@ -281,18 +296,21 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
       </Group>
 
       <Paper withBorder className="gantt-scroll" ref={chartRef}>
-        <div className="gantt-grid" style={{ width: 188 + days * dayWidth }}>
+        <div
+          className={`gantt-grid${narrow ? ' is-narrow' : ''}`}
+          style={{ width: trackLeft + days * dayWidth, '--gantt-label': `${labelWidth}px` } as CSSProperties}
+        >
           {dates.flatMap((date, index) =>
             shiftLines.map((minute) => (
               <div
                 key={`${date}-${minute}`}
                 className="gantt-shift"
-                style={{ left: 188 + x(index * MINUTES_PER_DAY + minute) }}
+                style={{ left: trackLeft + x(index * MINUTES_PER_DAY + minute) }}
                 aria-hidden="true"
               />
             )),
           )}
-          {onFirstDay && <div className="gantt-now" style={{ left: 188 + x(now) }} aria-hidden="true" />}
+          {onFirstDay && <div className="gantt-now" style={{ left: trackLeft + x(now) }} aria-hidden="true" />}
           <div className="gantt-row gantt-head">
             <div className="gantt-label">設備</div>
             <div className="gantt-track" style={{ width: days * dayWidth }}>
@@ -436,11 +454,13 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
                         onClick={() => toggle(operationSelection(operation))}
                       >
                         {setupWidth > 0 && <span className="bar-setup-part" style={{ width: setupWidth }} />}
-                        <span className="bar-text">
-                          <span className="bar-lot">{lotLabel(operation)}</span>
-                          {/* On a machine with several processes, bars of one lot differ by process. */}
-                          <span>{equipment.processes.length > 1 ? `${operation.stepName}・${detail}` : detail}</span>
-                        </span>
+                        {width - setupWidth >= (operation.planned ? PLANNED_BAR_TEXT_FITS : BAR_TEXT_FITS) && (
+                          <span className="bar-text">
+                            <span className="bar-lot">{lotLabel(operation)}</span>
+                            {/* On a machine with several processes, bars of one lot differ by process. */}
+                            <span>{equipment.processes.length > 1 ? `${operation.stepName}・${detail}` : detail}</span>
+                          </span>
+                        )}
                       </button>
                       </Tooltip>
                     )
@@ -453,7 +473,7 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
       </Paper>
 
       {result.unscheduled.length > 0 && (
-        <Text c="red" size="sm">
+        <Text c="red" size="sm" fw={700}>
           計画に入れられなかった工程：
           {result.unscheduled
             .map((entry) => `${entry.planned ? `${entry.lotId} 予定` : entry.lotId} ${entry.stepName}（${entry.reason}）`)
@@ -636,7 +656,7 @@ function LotFlow({
               <Table.Tr key={`unplaced-${entry.stepIndex}`}>
                 <Table.Th scope="row">{stepName(entry.stepIndex, entry.stepName)}</Table.Th>
                 <Table.Td colSpan={5}>
-                  <Text span size="sm" c="red">
+                  <Text span size="sm" c="red" fw={700}>
                     計画に入らない：{entry.reason}
                   </Text>
                 </Table.Td>

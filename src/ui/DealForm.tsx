@@ -11,6 +11,8 @@ type Props = {
   parts: string[]
   owners: string[]
   customers: string[]
+  // 既存 or 新規 for a customer already known, else null.
+  kindOf: (customer: string) => string | null
   onClose: () => void
   onSave: (input: DealInput) => void
 }
@@ -23,15 +25,15 @@ const EMPTY: DealInput = {
   stage: DEAL_STAGES[0],
   closeDate: '',
   monthlyQuantity: 0,
-  customerKind: CUSTOMER_KINDS[1],
-  source: DEAL_SOURCES[1],
-  use: DEAL_USES[0],
+  customerKind: '',
+  source: '',
+  use: '',
   note: '',
 }
 
 // Entering or editing one deal. Nothing is saved until 保存する; a field that cannot be saved
 // as entered says why under it.
-export function DealForm({ deal, opened, parts, owners, customers, onClose, onSave }: Props) {
+export function DealForm({ deal, opened, parts, owners, customers, kindOf, onClose, onSave }: Props) {
   return (
     <Drawer
       opened={opened}
@@ -42,7 +44,7 @@ export function DealForm({ deal, opened, parts, owners, customers, onClose, onSa
       closeButtonProps={{ 'aria-label': '閉じる' }}
     >
       {/* A fresh form for each deal opened, so what was typed for one does not carry over. */}
-      {opened && <DealFields key={deal?.id ?? 'new'} deal={deal} parts={parts} owners={owners} customers={customers} onSave={onSave} onCancel={onClose} />}
+      {opened && <DealFields key={deal?.id ?? 'new'} deal={deal} parts={parts} owners={owners} customers={customers} kindOf={kindOf} onSave={onSave} onCancel={onClose} />}
     </Drawer>
   )
 }
@@ -52,6 +54,7 @@ function DealFields({
   parts,
   owners,
   customers,
+  kindOf,
   onSave,
   onCancel,
 }: Omit<Props, 'opened' | 'onClose'> & { onCancel: () => void }) {
@@ -90,7 +93,20 @@ function DealFields({
     <Stack gap="sm">
       <TextInput id="deal-name" label="商談名" required value={input.name} error={error('name')} onChange={(event) => set('name', event.currentTarget.value)} />
       <Group grow align="flex-start">
-        <Autocomplete id="deal-customer" label="取引先" required data={customers} value={input.customer} error={error('customer')} onChange={(value) => set('customer', value)} />
+        <Autocomplete
+          id="deal-customer"
+          label="取引先"
+          required
+          data={customers}
+          value={input.customer}
+          error={error('customer')}
+          onChange={(value) => {
+            set('customer', value)
+            // A known customer brings whether it already buys.
+            const kind = kindOf(value)
+            if (kind) set('customerKind', kind)
+          }}
+        />
         <Autocomplete id="deal-owner" label="担当者" required data={owners} value={input.owner} error={error('owner')} onChange={(value) => set('owner', value)} />
       </Group>
       <Group grow align="flex-start">
@@ -133,18 +149,18 @@ function DealFields({
           label="取引先の種別"
           allowDeselect={false}
           data={choices(CUSTOMER_KINDS, input.customerKind)}
-          value={input.customerKind}
-          onChange={(value) => value && set('customerKind', value)}
+          value={input.customerKind || null}
+          onChange={(value) => set('customerKind', value ?? '')}
         />
         <Select
           label="引き合いの経路"
           allowDeselect={false}
           data={choices(DEAL_SOURCES, input.source)}
-          value={input.source}
-          onChange={(value) => value && set('source', value)}
+          value={input.source || null}
+          onChange={(value) => set('source', value ?? '')}
         />
       </Group>
-      <Select label="用途" allowDeselect={false} data={choices(DEAL_USES, input.use)} value={input.use} onChange={(value) => value && set('use', value)} />
+      <Select label="用途" data={choices(DEAL_USES, input.use)} value={input.use || null} onChange={(value) => set('use', value ?? '')} />
       <Textarea label="メモ" autosize minRows={2} value={input.note} onChange={(event) => set('note', event.currentTarget.value)} />
       <Group justify="flex-end">
         <Button variant="default" onClick={onCancel}>

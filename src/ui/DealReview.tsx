@@ -228,7 +228,7 @@ function TallyTable({ title, rows }: { title: string; rows: Tally[] }) {
                     {row.decided}
                   </Table.Td>
                   <Table.Td ta="right" className="tabular">
-                    {row.winRate === null ? '-' : percent(row.winRate)}
+                    {row.winRate === null ? '—' : percent(row.winRate)}
                   </Table.Td>
                   <Table.Td ta="right" className="tabular">
                     {pieces(row.wonQuantity)}
@@ -257,15 +257,15 @@ export function AnalyticsPanel({ insights, parts, today }: { insights: DealInsig
         <Stat label="受注" value={`${current.won}件`} before={`${previous.won}件`} />
         <Stat
           label="受注率"
-          value={current.winRate === null ? '-' : percent(current.winRate)}
-          before={previous.winRate === null ? '-' : percent(previous.winRate)}
+          value={current.winRate === null ? '—' : percent(current.winRate)}
+          before={previous.winRate === null ? '—' : percent(previous.winRate)}
         />
         <Stat label="受注した数量（月）" value={`${pieces(current.wonQuantity)}個`} before={`${pieces(previous.wonQuantity)}個`} />
         <Stat label="受注の売上（年）" value={largeYen(current.wonValue)} before={largeYen(previous.wonValue)} />
       </SimpleGrid>
       <Text size="sm" c="dimmed" className="tabular">
-        決着までの日数　受注 {current.daysToWin === null ? '-' : Math.round(current.daysToWin)}日・失注{' '}
-        {current.daysToLose === null ? '-' : Math.round(current.daysToLose)}日
+        決着までの日数　受注 {current.daysToWin === null ? '—' : Math.round(current.daysToWin)}日・失注{' '}
+        {current.daysToLose === null ? '—' : Math.round(current.daysToLose)}日
       </Text>
 
       <SimpleGrid cols={{ base: 1, md: 2 }} spacing="lg">

@@ -24,6 +24,7 @@ import { IconDownload, IconRefresh, IconUpload } from '@tabler/icons-react'
 import { useState } from 'react'
 
 import { addDays, weekday } from '../engine/dates'
+import { buildScenario } from '../engine/scenario'
 import { SHIFT_STARTS } from '../engine/settings'
 import type { Crew, IsoDate, Settings } from '../engine/types'
 import type { AppState } from '../state/store'
@@ -156,20 +157,63 @@ export function SettingsView({ app }: { app: AppState }) {
     }
   }
 
+  // The workbook has the plan as it stands, with the orders added and the material ordered by
+  // the decisions taken, so the plant's own records can catch up with it.
   async function onExport() {
     const { downloadWorkbook } = await import('../data/excel')
-    downloadWorkbook(data, 'sakiyomi-data.xlsx')
+    const { data: planned } = buildScenario(data, app.saved.settings, app.planState.adopted, app.planState.today, [])
+    downloadWorkbook(planned, 'sakiyomi-data.xlsx')
   }
 
   function onReset() {
     app.resetToSample()
     setImportErrors([])
-    setImportMessage(null)
+    setImportMessage('サンプルに戻しました')
     reset.close()
   }
 
   return (
     <Stack gap="xl" maw={980}>
+      {/* Data comes first: where the sample is replaced by a plant's own workbook. */}
+      <section>
+        <Title order={2} size="h4" mb="sm">
+          データ
+        </Title>
+        <Group gap="sm">
+          <Button variant="default" leftSection={<IconDownload size={16} />} onClick={() => void onExport()}>
+            Excel に書き出す
+          </Button>
+          <FileButton onChange={(file) => void onImport(file)} accept=".xlsx,.xls">
+            {(props) => (
+              <Button variant="default" leftSection={<IconUpload size={16} />} {...props}>
+                Excel を読み込む
+              </Button>
+            )}
+          </FileButton>
+          <Button variant="subtle" color="gray" leftSection={<IconRefresh size={16} />} onClick={reset.open}>
+            サンプルに戻す
+          </Button>
+        </Group>
+        {importMessage && (
+          <Alert color="teal" variant="light" mt="md">
+            {importMessage}
+          </Alert>
+        )}
+        {importErrors.length > 0 && (
+          <Alert color="red" variant="light" mt="md" title="読み込めませんでした">
+            <List size="sm">
+              {importErrors.map((message) => (
+                <List.Item key={message}>{message}</List.Item>
+              ))}
+            </List>
+            {/* The workbook written out is the template to fill in. */}
+            <Button variant="default" mt="sm" leftSection={<IconDownload size={16} />} onClick={() => void onExport()}>
+              ひな形を書き出す
+            </Button>
+          </Alert>
+        )}
+      </section>
+
       <section>
         <Title order={2} size="h4" mb="sm">
           稼働と計画
@@ -576,41 +620,6 @@ export function SettingsView({ app }: { app: AppState }) {
         </section>
       )}
 
-      <section>
-        <Title order={2} size="h4" mb="sm">
-          データ
-        </Title>
-        <Group gap="sm">
-          <Button variant="default" leftSection={<IconDownload size={16} />} onClick={() => void onExport()}>
-            Excel に書き出す
-          </Button>
-          <FileButton onChange={(file) => void onImport(file)} accept=".xlsx,.xls">
-            {(props) => (
-              <Button variant="default" leftSection={<IconUpload size={16} />} {...props}>
-                Excel を読み込む
-              </Button>
-            )}
-          </FileButton>
-          <Button variant="subtle" color="gray" leftSection={<IconRefresh size={16} />} onClick={reset.open}>
-            サンプルに戻す
-          </Button>
-        </Group>
-        {importMessage && (
-          <Alert color="teal" variant="light" mt="md">
-            {importMessage}
-          </Alert>
-        )}
-        {importErrors.length > 0 && (
-          <Alert color="red" variant="light" mt="md" title="読み込めませんでした">
-            <List size="sm">
-              {importErrors.map((message) => (
-                <List.Item key={message}>{message}</List.Item>
-              ))}
-            </List>
-          </Alert>
-        )}
-      </section>
-
       <Modal
         opened={resetOpened}
         onClose={reset.close}
@@ -618,7 +627,7 @@ export function SettingsView({ app }: { app: AppState }) {
         centered
         closeButtonProps={{ 'aria-label': '閉じる' }}
       >
-        <Text size="sm">読み込んだデータと判断の記録は消えます。</Text>
+        <Text size="sm">読み込んだデータ、商談の変更、計画に渡した版と判断の記録は消えます。</Text>
         <Group justify="flex-end" mt="lg">
           <Button variant="default" onClick={reset.close} data-autofocus>
             やめる

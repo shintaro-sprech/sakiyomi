@@ -1,7 +1,7 @@
 import { addDays } from './dates'
 import { replenishments, type Replenishment } from './demand'
 import { monthlyOutlook } from './economics'
-import type { Plan, ReleaseTiming } from './plan'
+import { materialTiming, type Plan, type ReleaseTiming } from './plan'
 import { channelOutlook, deliveriesOf, materialCover } from './records'
 import type { IsoDate } from './types'
 
@@ -20,6 +20,8 @@ export type FocusItem =
       orderBy: IsoDate | null
       arrives: IsoDate | null
       leadDays: number | null
+      // Orders already added to the plan that wait on this material, when there are any.
+      orderIds?: string[]
     }
   | { kind: 'lateOrder'; orderId: string; due: IsoDate; finishDate: IsoDate | null; lateDays: number | null }
   | { kind: 'distributorOrder'; customer: string; partNumber: string; quantity: number; on: IsoDate; stockNow: number; daysLeft: number }
@@ -41,8 +43,31 @@ export function todayFocus(
   const outlook = monthlyOutlook(plan, today)
   const forecasts = new Map(plan.result.orders.map((forecast) => [forecast.orderId, forecast]))
 
-  const material: FocusItem[] = replenishments(data, today).flatMap((item) => {
-    const timing = timingOf(item)
+  // What a part lacks and is not in the plan yet, and what was added to the plan for it
+  // already: the plan does not wait for material, so ordering it stays on the list until the
+  // workbook gives the order its material.
+  const added = [...groupBy(data.orders.filter((order) => order.id.startsWith('追加') && !order.materialOn), (order) => order.partNumber)].map(
+    ([partNumber, orders]) => {
+      const ids = new Set(orders.map((order) => order.id))
+      const startAt =
+        plan.result.operations.filter((operation) => ids.has(operation.orderId)).sort((a, b) => a.start - b.start)[0]?.startAt ?? null
+      const quantity = orders.reduce((total, order) => total + order.quantity, 0)
+      return {
+        partNumber,
+        quantity,
+        orderIds: orders.map((order) => order.id),
+        timing: materialTiming(data, plan.scenario.settings, today, partNumber, quantity, startAt),
+      }
+    },
+  )
+  const toAdd = replenishments(data, today).map((item) => ({
+    partNumber: item.partNumber,
+    quantity: item.quantity,
+    orderIds: undefined as string[] | undefined,
+    timing: timingOf(item),
+  }))
+  const material: FocusItem[] = [...added, ...toAdd].flatMap((item) => {
+    const timing = item.timing
     const cover = materialCover(data, item.partNumber, item.quantity)
     if (!timing.startAt || !cover || cover.kind === 'ready' || !timing.materialOrderBy) return []
     if (!timing.materialLate && timing.materialOrderBy > soon) return []
@@ -56,6 +81,7 @@ export function todayFocus(
         orderBy: timing.materialLate ? null : timing.materialOrderBy,
         arrives: timing.materialArrives,
         leadDays: timing.materialLeadDays,
+        ...(item.orderIds ? { orderIds: item.orderIds } : {}),
       },
     ]
   })
@@ -112,4 +138,10 @@ export function todayFocus(
 
   // Two material orders at most, so an order late for its due date still makes the list.
   return [...material.slice(0, 2), ...late, ...distributors, ...promises, ...shortages].slice(0, limit)
+}
+
+function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>()
+  for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), item])
+  return groups
 }

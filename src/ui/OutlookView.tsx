@@ -15,8 +15,8 @@ import {
   type Replenishment,
 } from '../engine/demand'
 import { monthlyOutlook, type Shortage } from '../engine/economics'
-import { todayFocus } from '../engine/focus'
-import type { Plan, ReleaseTiming } from '../engine/plan'
+import { todayFocus, type FocusItem } from '../engine/focus'
+import { arrivalIfOrderedToday, type Plan, type ReleaseTiming } from '../engine/plan'
 import { channelOutlook, materialCover, type ChannelOutlook, type MaterialCover } from '../engine/records'
 import { describeChange, type Change } from '../engine/scenario'
 import type { CrewDay } from '../engine/scheduler'
@@ -33,12 +33,14 @@ type Props = {
   timingOf: (item: Replenishment) => ReleaseTiming
   // Absent while an option is previewed.
   onAdopt?: (decision: Omit<Decision, 'id' | 'at'>) => void
-  // The deals counted on the deals tab, set beside the stock.
+  // The deals counted for the plan, set beside the stock.
   dealDemand: DealDemand
+  // Opens an order in the progress tab.
+  onShowOrder: (orderId: string) => void
 }
 
 const CLASS_LABELS: Record<PriorityClass, string> = { A: 'A 今月', B: 'B 来月', C: 'C 以降' }
-const CLASS_COLORS: Record<PriorityClass, string> = { A: 'red', B: 'orange', C: 'gray' }
+// The class is when an order is needed, not a warning, so every class is ink; A is bold.
 const PERSON_SIZE = 16
 const CREW_COLUMN_WIDTH = 96
 
@@ -46,10 +48,11 @@ export function ClassBadge({ value }: { value: PriorityClass }) {
   return (
     <Badge
       variant="outline"
-      color={CLASS_COLORS[value]}
+      color="dark"
       radius="sm"
       size="sm"
       fz="xs"
+      fw={value === 'A' ? 700 : 500}
       miw="max-content"
       className={`class-badge-${value.toLowerCase()}`}
     >
@@ -58,7 +61,7 @@ export function ClassBadge({ value }: { value: PriorityClass }) {
   )
 }
 
-export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand }: Props) {
+export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand, onShowOrder }: Props) {
   const outlook = useMemo(() => monthlyOutlook(plan, today), [plan, today])
   const { data, settings } = plan.scenario
   const demands = useMemo(() => orderDemands(data, today), [data, today])
@@ -70,13 +73,55 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand }: Prop
   )
   const channels = useMemo(() => channelOutlook(data, today), [data, today])
   const focus = useMemo(() => todayFocus(plan, today, timingOf), [plan, today, timingOf])
+  // Material still to order for what was added to the plan, shown in the part's row until the
+  // workbook gives the order its material.
+  const allFocus = useMemo(() => todayFocus(plan, today, timingOf, Number.POSITIVE_INFINITY), [plan, today, timingOf])
+  const materialAsks = new Map(allFocus.flatMap((item) => (item.kind === 'orderMaterial' ? [[item.partNumber, item] as const] : [])))
+  // Pieces added to the plan from this screen or an option, by part, until the plan's own data has them.
+  const addedPieces = (partNumber: string) =>
+    data.orders.filter((order) => order.id.startsWith('追加') && order.partNumber === partNumber).reduce((total, order) => total + order.quantity, 0)
+  // The day material recorded as ordered for what was added arrives, the latest of them.
+  const orderedOn = (partNumber: string) =>
+    data.orders
+      .filter((order) => order.id.startsWith('追加') && order.partNumber === partNumber && order.materialOn)
+      .map((order) => order.materialOn as IsoDate)
+      .sort()
+      .at(-1) ?? null
+  // The material for what was added is ordered: the plan then waits for it to arrive.
+  const recordOrdered = (item: Extract<FocusItem, { kind: 'orderMaterial' }>, arrives: IsoDate) => {
+    orderedFocused.current = null
+    setOrdered(item.partNumber)
+    const changes: Change[] = (item.orderIds ?? []).map((orderId) => ({ kind: 'materialOrdered', orderId, arrives }))
+    onAdopt?.({
+      title: `${item.partNumber}の材料を発注`,
+      changes,
+      labels: changes.map((change) => describeChange(change, data)),
+      reason: `注残に足した分の材料${item.toOrder}個分を発注した`,
+      tradeoff: `材料が${shortDate(arrives)}に着くまで、足した注番は着手しない`,
+      note: '',
+    })
+  }
   const shownProfit = useCountUp(outlook.grossProfit)
+  // Orders late for their due date or for a date promised to a customer, as today's focus counts them.
+  const lateOrPromised = new Set([
+    ...outlook.lateOrders.map((order) => order.orderId),
+    ...allFocus.flatMap((item) => (item.kind === 'promiseMissed' ? [item.orderId] : [])),
+  ]).size
   // The part just added keeps keyboard focus where its button was (WCAG 2.4.3).
   const [added, setAdded] = useState<string | null>(null)
   const addedRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (added) addedRef.current?.focus()
   }, [added])
+  // Likewise, once, the line that says the material was ordered, in place of the button pressed.
+  const [ordered, setOrdered] = useState<string | null>(null)
+  const orderedRef = useRef<HTMLDivElement>(null)
+  const orderedFocused = useRef<string | null>(null)
+  useEffect(() => {
+    if (!ordered || orderedFocused.current === ordered || !orderedRef.current) return
+    orderedRef.current.focus()
+    orderedFocused.current = ordered
+  }, [ordered, data])
   const add = (item: Replenishment) => {
     const change: Change = { kind: 'addOrder', partNumber: item.partNumber, quantity: item.quantity, due: item.needBy }
     // The plan does not wait for material it has no arrival date for, so the record says so,
@@ -124,7 +169,7 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand }: Prop
   return (
     <Stack gap="lg">
       <div className="outlook-hero">
-        <TodayFocus items={focus} today={today} />
+        <TodayFocus items={focus} today={today} onSelect={(item) => goTo(item, onShowOrder)} />
         <Paper withBorder p="lg" className="profit-card">
           <Text size="sm" c="dimmed">
             {outlook.month.replace('-', '年')}月の粗利
@@ -151,12 +196,7 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand }: Prop
             ))}
           </Text>
           <SimpleGrid cols={2} spacing="sm" mt="sm">
-            <Metric
-              label="納期に遅れる注番"
-              value={outlook.lateOrders.length}
-              unit="件"
-              tone={outlook.lateOrders.length > 0 ? 'red' : undefined}
-            />
+            <Metric label="納期か回答に遅れる注番" value={lateOrPromised} unit="件" tone={lateOrPromised > 0 ? 'red' : undefined} />
             <Metric
               label="来月末までの欠品"
               value={new Set(outlook.shortages.map((shortage) => shortage.partNumber)).size}
@@ -293,14 +333,14 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand }: Prop
             <Table verticalSpacing={6} horizontalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>
+                  {/* What to act on comes first after the part, so it stays in view on a phone. */}
                   <Table.Th className="sticky-col">型番</Table.Th>
-                  <Table.Th>形状</Table.Th>
-                  <Table.Th ta="right">在庫</Table.Th>
-                  <Table.Th ta="right">1日の出荷</Table.Th>
+                  <Table.Th w={{ base: 150, sm: 280 }}>足りない分</Table.Th>
                   <Table.Th w={220}>欠品の見込み</Table.Th>
                   <Table.Th w={190}>商談が決まると</Table.Th>
-                  {/* Narrow on a phone, where the button goes under the count beside the fixed part column. */}
-                  <Table.Th w={{ base: 150, sm: 280 }}>足りない分</Table.Th>
+                  <Table.Th ta="right">在庫</Table.Th>
+                  <Table.Th ta="right">1日の出荷</Table.Th>
+                  <Table.Th>形状</Table.Th>
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
@@ -308,16 +348,61 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand }: Prop
                   const shortages = outlook.shortages.filter((shortage) => shortage.partNumber === part.partNumber)
                   const shortfall = toRelease.get(part.partNumber)
                   return (
-                    <Table.Tr key={part.partNumber}>
-                      <Table.Th scope="row" className="sticky-col" fw={400}>
+                    <Table.Tr key={part.partNumber} id={rowId('stock', part.partNumber)}>
+                      <Table.Th scope="row" className="sticky-col" fw={400} tabIndex={-1}>
                         {part.partNumber}
                       </Table.Th>
-                      <Table.Td>{part.shape}</Table.Td>
-                      <Table.Td ta="right" className="tabular">
-                        {part.stock}
-                      </Table.Td>
-                      <Table.Td ta="right" className="tabular">
-                        {Math.round(dailyUsage(part) * 10) / 10}
+                      <Table.Td>
+                        {shortfall ? (
+                          <Stack gap={4}>
+                            <Group gap={6}>
+                              <Text size="sm" className="tabular" style={{ whiteSpace: 'nowrap' }}>
+                                {shortfall.quantity}個　{shortDate(shortfall.needBy)}までに
+                              </Text>
+                              {onAdopt && (
+                                <Button
+                                  size="compact-sm"
+                                  variant="default"
+                                  onClick={() => add(shortfall)}
+                                  aria-label={`${part.partNumber}の足りない分${shortfall.quantity}個を注残に足す`}
+                                >
+                                  注残に足す
+                                </Button>
+                              )}
+                            </Group>
+                            <MaterialLine cover={materialCover(data, part.partNumber, shortfall.quantity)} />
+                            <TimingLine
+                              timing={timings.get(part.partNumber)}
+                              cover={materialCover(data, part.partNumber, shortfall.quantity)}
+                              today={today}
+                            />
+                          </Stack>
+                        ) : addedPieces(part.partNumber) > 0 ? (
+                          <Stack gap={4}>
+                            <div ref={added === part.partNumber ? addedRef : undefined} tabIndex={-1} style={{ width: 'fit-content' }}>
+                              <Text size="sm" c="teal" fw={700} className="tabular nowrap">
+                                <IconCheck size={14} style={{ verticalAlign: '-2px' }} aria-hidden="true" /> 注残に足した {pieces(addedPieces(part.partNumber))}個
+                              </Text>
+                            </div>
+                            {orderedOn(part.partNumber) && (
+                              <div ref={ordered === part.partNumber ? orderedRef : undefined} tabIndex={-1} style={{ width: 'fit-content' }}>
+                                <Text size="sm" c="teal" fw={700} className="tabular">
+                                  <IconCheck size={14} style={{ verticalAlign: '-2px' }} aria-hidden="true" /> 材料を発注した（{shortDate(orderedOn(part.partNumber))}着）
+                                </Text>
+                              </div>
+                            )}
+                            <MaterialAsk
+                              item={materialAsks.get(part.partNumber)}
+                              today={today}
+                              arrives={(lead) => arrivalIfOrderedToday(settings, today, lead)}
+                              onOrdered={onAdopt ? (item, arrives) => recordOrdered(item, arrives) : undefined}
+                            />
+                          </Stack>
+                        ) : (
+                          <Text size="sm" c="dimmed">
+                            —
+                          </Text>
+                        )}
                       </Table.Td>
                       <Table.Td>
                         {shortages.length === 0 ? (
@@ -335,43 +420,13 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand }: Prop
                       <Table.Td>
                         <DealsLine part={part} coverage={coverageOf(data, part)} demand={dealDemand} today={today} />
                       </Table.Td>
-                      <Table.Td>
-                        {shortfall ? (
-                          <Stack gap={4}>
-                            <Group gap={6}>
-                              <Text size="sm" className="tabular" style={{ whiteSpace: 'nowrap' }}>
-                                {shortfall.quantity}個　{shortDate(shortfall.needBy)}までに
-                              </Text>
-                              {onAdopt && (
-                                <Button
-                                  size="xs"
-                                  variant="default"
-                                  onClick={() => add(shortfall)}
-                                  aria-label={`${part.partNumber}の足りない分${shortfall.quantity}個を計画に反映する`}
-                                >
-                                  計画に反映する
-                                </Button>
-                              )}
-                            </Group>
-                            <MaterialLine cover={materialCover(data, part.partNumber, shortfall.quantity)} />
-                            <TimingLine
-                              timing={timings.get(part.partNumber)}
-                              cover={materialCover(data, part.partNumber, shortfall.quantity)}
-                              today={today}
-                            />
-                          </Stack>
-                        ) : added === part.partNumber ? (
-                          <div ref={addedRef} tabIndex={-1} style={{ width: 'fit-content' }}>
-                            <Badge color="teal" variant="outline" size="lg" radius="sm" leftSection={<IconCheck size={14} />}>
-                              反映済み
-                            </Badge>
-                          </div>
-                        ) : (
-                          <Text size="sm" c="dimmed">
-                            —
-                          </Text>
-                        )}
+                      <Table.Td ta="right" className="tabular">
+                        {pieces(part.stock)}
                       </Table.Td>
+                      <Table.Td ta="right" className="tabular">
+                        {Math.round(dailyUsage(part) * 10) / 10}
+                      </Table.Td>
+                      <Table.Td>{part.shape}</Table.Td>
                     </Table.Tr>
                   )
                 })}
@@ -406,8 +461,8 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand }: Prop
                   {[...channels]
                     .sort((a, b) => (a.orderOn ?? '9999').localeCompare(b.orderOn ?? '9999') || a.customer.localeCompare(b.customer))
                     .map((entry) => (
-                      <Table.Tr key={`${entry.customer}-${entry.partNumber}`}>
-                        <Table.Th scope="row" className="sticky-col" fw={400} style={{ whiteSpace: 'nowrap' }}>
+                      <Table.Tr key={`${entry.customer}-${entry.partNumber}`} id={rowId('channel', `${entry.customer}-${entry.partNumber}`)}>
+                        <Table.Th scope="row" className="sticky-col" fw={400} style={{ whiteSpace: 'nowrap' }} tabIndex={-1}>
                           {entry.customer}　{entry.partNumber}
                         </Table.Th>
                         <Table.Td className="tabular">{shortDate(entry.asOf)}</Table.Td>
@@ -435,6 +490,28 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand }: Prop
   )
 }
 
+function rowId(table: string, key: string): string {
+  return `${table}-row-${key}`
+}
+
+// Where a focus item is dealt with: the part's row in the stock outlook or the distributor's
+// row on this screen, briefly marked, or the order in the progress tab.
+function goTo(item: FocusItem, onShowOrder: (orderId: string) => void) {
+  if (item.kind === 'lateOrder' || item.kind === 'promiseMissed') {
+    onShowOrder(item.orderId)
+    return
+  }
+  const id = item.kind === 'distributorOrder' ? rowId('channel', `${item.customer}-${item.partNumber}`) : rowId('stock', item.partNumber)
+  const row = document.getElementById(id)
+  if (!row) return
+  row.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+  row.querySelector<HTMLElement>('th')?.focus({ preventScroll: true })
+  row.classList.remove('is-pointed')
+  void row.offsetWidth
+  row.classList.add('is-pointed')
+  window.setTimeout(() => row.classList.remove('is-pointed'), 2400)
+}
+
 // What the counted deals of a part would add a month, and, when it comes sooner with them,
 // the day stock and what the open orders still have to finish would run out.
 function DealsLine({ part, coverage, demand, today }: { part: Part; coverage: number; demand: DealDemand; today: IsoDate }) {
@@ -457,12 +534,42 @@ function DealsLine({ part, coverage, demand, today }: { part: Part; coverage: nu
         +{pieces(counted.expected)}個/月（{counted.deals}件）
       </Text>
       {sooner && (
-        <Text size="sm" className="tabular" c="red">
+        <Text size="sm" className="tabular" c={withDeals <= addDays(today, 30) ? 'orange' : undefined}>
           在庫と注残が尽きる{' '}
           <span className="nowrap">
             {now ? dateInYear(now, today) : `${dateInYear(demand.periodEnd, today)}より後`} → {dateInYear(withDeals, today)}
           </span>
         </Text>
+      )}
+    </Stack>
+  )
+}
+
+// The material still to order for pieces already added to the plan, in the words of today's focus.
+// Its button records the order placed, so the plan waits for the material and the reminder ends.
+function MaterialAsk({
+  item,
+  today,
+  arrives,
+  onOrdered,
+}: {
+  item: FocusItem | undefined
+  today: IsoDate
+  // The day material ordered today arrives, for a lead time in days.
+  arrives: (leadDays: number) => IsoDate
+  onOrdered?: (item: Extract<FocusItem, { kind: 'orderMaterial' }>, arrives: IsoDate) => void
+}) {
+  if (!item || item.kind !== 'orderMaterial') return null
+  const arrival = item.arrives ?? (item.leadDays !== null ? arrives(item.leadDays) : null)
+  return (
+    <Stack gap={4} align="flex-start">
+      <Text size="sm" c="orange" fw={700} className="tabular">
+        材料{item.toOrder}個分を{item.orderBy ? `${item.orderBy === today ? '今日' : shortDate(item.orderBy)}までに発注` : `今日発注して${shortDate(item.arrives)}着`}
+      </Text>
+      {onOrdered && item.orderIds && arrival && (
+        <Button size="compact-sm" variant="default" onClick={() => onOrdered(item, arrival)}>
+          発注した（{shortDate(arrival)}着）
+        </Button>
       )}
     </Stack>
   )
@@ -496,7 +603,7 @@ function TimingLine({ timing, cover, today }: { timing: ReleaseTiming | undefine
     return (
       <div className="tabular">
         {cover?.kind === 'partly' && <Text size="sm">着手 {start}（材料のある{cover.pieces}個）</Text>}
-        <Text size="sm" c="red" fw={700}>
+        <Text size="sm" c="orange" fw={700}>
           {cover?.kind === 'partly' ? `残りは今日発注して${arrives}着` : `材料を今日発注して${arrives}着`}
         </Text>
         {cover?.kind !== 'partly' && <Text size="sm">着手はそのあと</Text>}

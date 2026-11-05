@@ -51,7 +51,8 @@ type Props = {
   plan: Plan
   today: IsoDate
   warningDays: number
-  // A lot to open on, asked for from the Gantt chart.
+  // A lot to open on, asked for from the Gantt chart, or with no lot, an order whose customer
+  // orders to open, asked for from today's focus.
   focus: { orderId: string; lotId: string } | null
 }
 
@@ -81,9 +82,14 @@ const URGENCY_LABELS: Record<Urgency, string> = {
 
 export function ProgressView({ plan, today, warningDays, focus }: Props) {
   const [mode, setMode] = useState<'order' | 'part'>('order')
-  // The tab is drawn afresh each time it opens, so a lot asked for opens its order's list.
+  // The tab is drawn afresh each time it opens, so a lot asked for opens its order's list, and
+  // an order asked for without a lot opens its customer orders and promised dates.
   const [selection, setSelection] = useState<Selection | null>(() =>
-    focus ? { kind: 'row', rowKey: `o:${focus.orderId}`, step: null } : null,
+    !focus
+      ? null
+      : focus.lotId
+        ? { kind: 'row', rowKey: `o:${focus.orderId}`, step: null }
+        : { kind: 'deliveries', orderId: focus.orderId },
   )
   const { data } = plan.scenario
   const forecasts = useMemo(
@@ -155,7 +161,6 @@ export function ProgressView({ plan, today, warningDays, focus }: Props) {
   const sortBy = (key: SortKey) =>
     setSort((current) => ({ key, descending: current.key === key ? !current.descending : false }))
   const ariaSort = (key: SortKey) => (sort.key === key ? (sort.descending ? 'descending' : 'ascending') : undefined)
-  const stepCount = Math.max(1, ...rows.map((row) => row.route.length))
   const selectedRow = selection?.kind === 'row' ? (rows.find((row) => row.key === selection.rowKey) ?? null) : null
   // A panel belongs to its row, so it closes when narrowing hides the row, and does not
   // come back on its own when the row does.
@@ -177,7 +182,8 @@ export function ProgressView({ plan, today, warningDays, focus }: Props) {
     setSelection(null)
     ;(opener.current?.isConnected ? opener.current : searchRef.current)?.focus()
   }
-  // Keyboard focus goes to the lot the Gantt chart asked for once, when the tab opens.
+  // Keyboard focus goes once, when the tab opens, to the lot the Gantt chart asked for, or to
+  // the heading of the customer orders asked for.
   const lotFocused = useRef(false)
   const claimLotFocus = () => {
     if (lotFocused.current) return false
@@ -187,13 +193,23 @@ export function ProgressView({ plan, today, warningDays, focus }: Props) {
   const panelProps = { plan, today, warningDays, onClose: close }
 
   const allWip = orderRows.flatMap((row) => row.summary.wipLots)
-  const lateCount = plan.result.orders.filter((forecast) => forecast.late).length
+  // Late for the due date, or for a date promised to a customer, as the month's plan counts them.
+  const lateCount = data.orders.filter((order) => {
+    const forecast = forecasts.get(order.id)
+    return (
+      forecast?.late ||
+      deliveriesOf(data, order.id, forecast).some((entry) => entry.answered !== null && (entry.unplanned || (entry.daysLate ?? 0) > 0))
+    )
+  }).length
 
   return (
     <Stack gap="md">
-      <SimpleGrid cols={{ base: 2, md: 4 }} spacing="sm">
+      <Title order={2} size="h4">
+        進捗
+      </Title>
+      <SimpleGrid cols={{ base: 2, lg: 4 }} spacing="sm">
         <Metric label="注残" value={`${data.orders.length}件`} />
-        <Metric label="納期に遅れる見込み" value={`${lateCount}件`} tone={lateCount > 0 ? 'red' : 'teal'} />
+        <Metric label="納期か回答に遅れる注番" value={`${lateCount}件`} tone={lateCount > 0 ? 'red' : 'teal'} />
         <Metric
           label="仕掛"
           value={`${allWip.reduce((total, lot) => total + lot.quantity, 0)}個 / ${allWip.length}Lot`}
@@ -201,7 +217,7 @@ export function ProgressView({ plan, today, warningDays, focus }: Props) {
         <Metric
           label={`${warningDays}日以上止まっているLot`}
           value={`${allWip.filter(isWarned).length}Lot`}
-          tone={allWip.some(isWarned) ? 'orange' : undefined}
+          tone={allWip.some(isWarned) ? 'red' : undefined}
         />
       </SimpleGrid>
 
@@ -275,9 +291,7 @@ export function ProgressView({ plan, today, warningDays, focus }: Props) {
               )}
               <SortHeader label="完成見込み" sort={ariaSort('finish')} onSort={() => sortBy('finish')} />
               <SortHeader label="工程全体" sort={ariaSort('progress')} onSort={() => sortBy('progress')} className="col-overall" />
-              {Array.from({ length: stepCount }, (_, index) => (
-                <th key={index}>工程{index + 1}</th>
-              ))}
+              <th>工程</th>
             </tr>
           </thead>
           <tbody>
@@ -285,16 +299,21 @@ export function ProgressView({ plan, today, warningDays, focus }: Props) {
               <tr
                 key={row.key}
                 className={
-                  (selection?.kind === 'row' && selection.rowKey === row.key) ||
-                  (selection?.kind === 'deliveries' && row.orders.length === 1 && selection.orderId === row.orders[0].id)
-                    ? 'is-selected'
-                    : undefined
+                  [
+                    (selection?.kind === 'row' && selection.rowKey === row.key) ||
+                    (selection?.kind === 'deliveries' && row.orders.length === 1 && selection.orderId === row.orders[0].id)
+                      ? 'is-selected'
+                      : '',
+                    row.summary.wipLots.some(isWarned) ? 'has-stuck' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ') || undefined
                 }
               >
                 {mode === 'order' ? (
                   <>
                     <td>
-                      <Group gap={6} wrap="nowrap">
+                      <Group gap={4} wrap="nowrap">
                         {row.label}
                         {row.priorityClass && <ClassBadge value={row.priorityClass} />}
                       </Group>
@@ -347,18 +366,13 @@ export function ProgressView({ plan, today, warningDays, focus }: Props) {
                     onOpen={() => open({ kind: 'row', rowKey: row.key, step: null })}
                   />
                 </td>
-                {Array.from({ length: stepCount }, (_, index) => (
-                  <td key={index}>
-                    {index < row.route.length && (
-                      <StepChip
-                        summary={row.summary}
-                        index={index}
-                        warned={row.summary.steps[index].lots.some(isWarned)}
-                        onOpen={() => open({ kind: 'row', rowKey: row.key, step: index })}
-                      />
-                    )}
-                  </td>
-                ))}
+                <td className="col-steps">
+                  <StepChips
+                    summary={row.summary}
+                    isWarned={isWarned}
+                    onOpen={(step) => open({ kind: 'row', rowKey: row.key, step })}
+                  />
+                </td>
               </tr>
             ))}
             {rows.length === 0 && (
@@ -401,6 +415,7 @@ export function ProgressView({ plan, today, warningDays, focus }: Props) {
           orderId={selection.orderId}
           deliveries={deliveriesOf(data, selection.orderId, forecasts.get(selection.orderId))}
           finish={forecasts.get(selection.orderId)?.finishAt ?? null}
+          claimFocus={focus && !focus.lotId && focus.orderId === selection.orderId ? claimLotFocus : undefined}
           onClose={close}
         />
       )}
@@ -488,7 +503,7 @@ function PartShortages({ shortages }: { shortages: Shortage[] }) {
   return (
     <Stack gap={0}>
       {shortages.map((shortage) => (
-        <Text key={shortage.from} size="sm" c="red" className="tabular" style={{ whiteSpace: 'nowrap' }}>
+        <Text key={shortage.from} size="sm" c="red" fw={700} className="tabular" style={{ whiteSpace: 'nowrap' }}>
           {shortDate(shortage.from)}〜{shortage.until ? shortDate(shortage.until) : ''}（最大{shortage.maxShortage}個）
         </Text>
       ))}
@@ -512,7 +527,12 @@ function MonthNeed({ reach, data }: { reach: MonthReach | undefined; data: Plan[
       <Text size="sm" fw={700} className="tabular">
         {need}個
       </Text>
-      <Text size="sm" c={reach.reach.kind === 'short' ? 'red' : undefined} style={{ whiteSpace: 'nowrap' }}>
+      <Text
+        size="sm"
+        c={reach.reach.kind === 'short' ? 'red' : undefined}
+        fw={reach.reach.kind === 'short' ? 700 : undefined}
+        style={{ whiteSpace: 'nowrap' }}
+      >
         {text}
       </Text>
       {reach.reach.kind === 'short' && <MaterialLine cover={materialCover(data, reach.partNumber, reach.reach.pieces)} />}
@@ -555,7 +575,8 @@ function DueCell({
       >
         {shortDate(due)}
       </Anchor>
-      <span id={notesId}>
+      {/* The notes open the same customer orders when clicked; the date is the keyboard's way in. */}
+      <span id={notesId} onClick={onOpen} style={missed > 0 || unanswered > 0 ? { cursor: 'pointer' } : undefined}>
         {missed > 0 && (
           <Text span display="block" size="xs" c="red" fw={700} style={{ whiteSpace: 'nowrap' }}>
             回答に遅れ{missed}件
@@ -576,25 +597,32 @@ function DeliveriesPanel({
   orderId,
   deliveries,
   finish,
+  claimFocus,
   onClose,
 }: {
   orderId: string
   deliveries: Delivery[]
   finish: string | null
+  claimFocus?: () => boolean
   onClose: () => void
 }) {
   const title = `注番${orderId} の受注と納期回答`
   const panelRef = useRef<HTMLDivElement>(null)
+  const headingRef = useRef<HTMLHeadingElement>(null)
   const reduceMotion = useReducedMotion()
   useEffect(() => {
     panelRef.current?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
   }, [title, reduceMotion])
+  // Opened from another screen, keyboard focus starts at the panel's heading (WCAG 2.4.3).
+  useEffect(() => {
+    if (claimFocus?.()) headingRef.current?.focus({ preventScroll: true })
+  }, [claimFocus])
 
   return (
     <Paper component="section" withBorder p="md" aria-label={title} ref={panelRef}>
       <Group justify="space-between" mb="xs" wrap="nowrap">
         <Group gap="sm">
-          <Title order={3} size="h5">
+          <Title order={3} size="h5" ref={headingRef} tabIndex={-1}>
             {title}
           </Title>
           <Text size="sm" c="dimmed">
@@ -659,7 +687,7 @@ function DeliveriesPanel({
   )
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: 'red' | 'teal' | 'orange' }) {
+function Metric({ label, value, tone }: { label: string; value: string; tone?: 'red' | 'teal' }) {
   return (
     <Paper withBorder p="sm">
       <Text size="xs" c="dimmed" className="phrase">
@@ -702,6 +730,56 @@ function OverallCell({ summary, warned, onOpen }: { summary: ProgressSummary; wa
   )
 }
 
+// The steps of a row from left to right: the steps every piece has passed, which always come
+// first, as one quiet chip, then each step still open.
+function StepChips({
+  summary,
+  isWarned,
+  onOpen,
+}: {
+  summary: ProgressSummary
+  isWarned: (lot: Lot) => boolean
+  onOpen: (step: number) => void
+}) {
+  const open = summary.steps.findIndex((step) => step.ratio < 1)
+  const done = open === -1 ? summary.steps.length : open
+  return (
+    <div className="chip-row">
+      {done > 0 && <DoneChip summary={summary} count={done} />}
+      {summary.steps.slice(done).map((step, offset) => (
+        <StepChip
+          key={done + offset}
+          summary={summary}
+          index={done + offset}
+          warned={step.lots.some(isWarned)}
+          onOpen={() => onOpen(done + offset)}
+        />
+      ))}
+    </div>
+  )
+}
+
+// Steps every piece has passed hold no lots, so the chip opens nothing.
+function DoneChip({ summary, count }: { summary: ProgressSummary; count: number }) {
+  const [first, last] = [summary.steps[0], summary.steps[count - 1]]
+  return (
+    <span className="chip chip-done">
+      <span className="chip-line">
+        <span className="chip-name">
+          <span className="chip-check" aria-hidden="true">
+            ✓
+          </span>
+          {count === 1 ? first.name : `${first.name}〜${last.name}`}
+        </span>
+      </span>
+      <span className="chip-line chip-sub">
+        <VisuallyHidden>{count === 1 ? '工程1' : `工程1〜${count}`} 済み </VisuallyHidden>
+        {last.done}/{summary.quantity}
+      </span>
+    </span>
+  )
+}
+
 function StepChip({
   summary,
   index,
@@ -714,22 +792,7 @@ function StepChip({
   onOpen: () => void
 }) {
   const step = summary.steps[index]
-  const ratio = step.ratio
-  if (ratio >= 1) {
-    return (
-      <button className="chip chip-done" onClick={onOpen}>
-        <span className="chip-line">
-          <span>✓ {step.name}</span>
-          <span>完了</span>
-        </span>
-        <span className="chip-line chip-sub">
-          {step.done}/{summary.quantity}
-        </span>
-      </button>
-    )
-  }
   const idle = step.done === 0 && step.wipQuantity === 0
-  const tone = ratio >= 0.67 ? 'high' : ratio >= 0.34 ? 'mid' : 'low'
   const sub =
     step.wipQuantity > 0
       ? `${step.wipQuantity}個/${step.lots.length}Lot`
@@ -737,18 +800,20 @@ function StepChip({
         ? `未着手${summary.unstarted}`
         : '—'
   return (
-    <button className={`chip chip-${tone}${idle ? ' chip-idle' : ''}`} onClick={onOpen}>
-      <span className="chip-fill" style={{ width: percent(ratio) }} aria-hidden="true" />
+    <button className={['chip', idle ? 'chip-idle' : '', warned ? 'chip-stuck' : ''].filter(Boolean).join(' ')} onClick={onOpen}>
       <span className="chip-line">
         <span className="chip-name">
-          <span className="chip-dot" aria-hidden="true" />
+          <VisuallyHidden>工程{index + 1} </VisuallyHidden>
           {step.name}
         </span>
-        <span>{percent(ratio)}</span>
+        <span>{percent(step.ratio)}</span>
       </span>
       <span className="chip-line chip-sub">
         {sub}
         {warned && <WarnIcon />}
+      </span>
+      <span className="chip-track" aria-hidden="true">
+        <span className="chip-fill" style={{ width: percent(step.ratio) }} />
       </span>
     </button>
   )
@@ -955,7 +1020,7 @@ function UrgencyLabel({ urgency }: { urgency: Urgency }) {
   return (
     <>
       <ClassBadge value="A" />
-      <span className="wip-reason">
+      <span className={`wip-reason${urgency === 'A-stockout' ? ' is-stockout' : ''}`}>
         {urgency === 'A-stockout' ? <IconPackageOff size={14} aria-hidden /> : <IconCalendarDue size={14} aria-hidden />}
         {urgency === 'A-stockout' ? '在庫切れ' : '納期'}
       </span>
@@ -985,7 +1050,7 @@ function WipCellButton({
   const notes = [late ? '納期に遅れる注番あり' : '', warned ? '長く止まっているLotあり' : ''].filter(Boolean)
   return (
     <button
-      className={`${className}${selected ? ' is-selected' : ''}`}
+      className={[className, warned ? 'is-stuck' : '', selected ? 'is-selected' : ''].filter(Boolean).join(' ')}
       aria-pressed={selected}
       aria-label={[`${label} ${cell.quantity}個${lots ? ` ${lots}` : ''}`, ...notes].join('、')}
       onClick={onClick}
@@ -1255,7 +1320,12 @@ function LotHistory({
                   <Table.Td ta="right" className="tabular">
                     {actual.good}個
                   </Table.Td>
-                  <Table.Td ta="right" className="tabular" c={actual.defect > 0 ? 'red' : undefined}>
+                  <Table.Td
+                    ta="right"
+                    className="tabular"
+                    c={actual.defect > 0 ? 'red' : undefined}
+                    fw={actual.defect > 0 ? 700 : undefined}
+                  >
                     {actual.defect}個
                   </Table.Td>
                 </Table.Tr>

@@ -19,7 +19,7 @@ import {
   VisuallyHidden,
 } from '@mantine/core'
 import { IconChevronDown, IconChevronRight, IconPlus, IconSearch } from '@tabler/icons-react'
-import { Fragment, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 import { dealDemand, DEAL_DEMAND_DEFAULTS, THRESHOLDS, type DealDemand } from '../engine/dealDemand'
 import { createDeal, dealProblems, dealStatus, editDeal, type DealInput, type DealProblem } from '../engine/deals'
@@ -46,7 +46,9 @@ const PAGE_SIZE = 50
 const PAGE_CONTROLS: Record<string, string> = { first: '最初のページ', previous: '前のページ', next: '次のページ', last: '最後のページ' }
 
 export function DealsView({ app, today, insights, threshold, onThreshold }: Props) {
-  const [view, setView] = useState<View>('outlook')
+  const [view, setView] = useState<View>('list')
+  // The deal just saved, marked in the list.
+  const [pointed, setPointed] = useState<string | null>(null)
   const [editing, setEditing] = useState<Deal | null | 'new'>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const data = app.saved.data
@@ -54,6 +56,9 @@ export function DealsView({ app, today, insights, threshold, onThreshold }: Prop
   const partNumbers = data.parts.map((part) => part.partNumber)
   const owners = [...new Set(deals.map((deal) => deal.owner))].sort()
   const customers = [...new Set(deals.map((deal) => deal.customer))].sort()
+  // A customer that has won a deal already buys from the plant.
+  const buyers = new Set(deals.filter((deal) => dealStatus(deal.stage) === 'won').map((deal) => deal.customer))
+  const kindOf = (customer: string) => (customers.includes(customer) ? (buyers.has(customer) ? '既存' : '新規') : null)
 
   function save(input: DealInput) {
     const at = nowAt()
@@ -61,6 +66,8 @@ export function DealsView({ app, today, insights, threshold, onThreshold }: Prop
       const next = Math.max(0, ...deals.map((deal) => Number(deal.id.replace(/\D/g, '')) || 0)) + 1
       const { deal, changes: added } = createDeal(`S-${String(next).padStart(4, '0')}`, input, at)
       app.updateData({ ...data, deals: [...deals, deal], dealChanges: [...changes, ...added] })
+      setView('list')
+      setPointed(deal.id)
     } else if (editing) {
       const { deal, changes: added } = editDeal(editing, input, at)
       app.updateData({
@@ -69,8 +76,12 @@ export function DealsView({ app, today, insights, threshold, onThreshold }: Prop
         dealChanges: [...changes, ...added],
       })
       // A deal won or lost leaves the open list with the button that opened it, so keyboard
-      // focus goes back to the heading (WCAG 2.4.3).
+      // focus goes back to the heading (WCAG 2.4.3); one still open is marked in the list.
       if (dealStatus(deal.stage) !== 'open') requestAnimationFrame(() => headingRef.current?.focus())
+      else {
+        setView('list')
+        setPointed(deal.id)
+      }
     }
     setEditing(null)
   }
@@ -89,8 +100,8 @@ export function DealsView({ app, today, insights, threshold, onThreshold }: Prop
       </Group>
       <Tabs value={view} onChange={(value) => value && setView(value as View)}>
         <Tabs.List className="sub-tabs">
-          <Tabs.Tab value="outlook">見込み</Tabs.Tab>
           <Tabs.Tab value="list">一覧</Tabs.Tab>
+          <Tabs.Tab value="outlook">見込み</Tabs.Tab>
           <Tabs.Tab
             value="problems"
             rightSection={
@@ -104,7 +115,10 @@ export function DealsView({ app, today, insights, threshold, onThreshold }: Prop
             確認
             {problemCount > 0 && <VisuallyHidden>件</VisuallyHidden>}
           </Tabs.Tab>
-          <Tabs.Tab value="review">答え合わせ</Tabs.Tab>
+          {/* Looking back comes apart from the day's work, at the far end. */}
+          <Tabs.Tab value="review" ml="auto">
+            答え合わせ
+          </Tabs.Tab>
           <Tabs.Tab value="analytics">分析</Tabs.Tab>
           <Tabs.Tab value="model">確率の学習</Tabs.Tab>
         </Tabs.List>
@@ -112,7 +126,7 @@ export function DealsView({ app, today, insights, threshold, onThreshold }: Prop
           <OutlookPanel insights={insights} today={today} threshold={threshold} onThreshold={onThreshold} parts={data.parts} />
         </Tabs.Panel>
         <Tabs.Panel value="list" pt="md">
-          <ListPanel insights={insights} today={today} parts={data.parts} onEdit={setEditing} />
+          <ListPanel insights={insights} today={today} parts={data.parts} onEdit={setEditing} pointed={pointed} onPointed={() => setPointed(null)} />
         </Tabs.Panel>
         <Tabs.Panel value="problems" pt="md">
           <ProblemsPanel insights={insights} today={today} parts={data.parts} onEdit={setEditing} />
@@ -133,6 +147,7 @@ export function DealsView({ app, today, insights, threshold, onThreshold }: Prop
         parts={partNumbers}
         owners={owners}
         customers={customers}
+        kindOf={kindOf}
         onClose={() => setEditing(null)}
         onSave={save}
       />
@@ -167,7 +182,7 @@ function OutlookPanel({
         value={String(threshold)}
         onChange={(value) => onThreshold(Number(value))}
         label="数える受注確率"
-        description={`受注予定日が${dateInYear(demand.periodEnd, today)}までの進行中の商談`}
+        description={`受注予定日が${dateInYear(demand.periodEnd, today)}までの進行中の商談と、30日以内に受注した商談`}
       >
         <SimpleGrid cols={{ base: 1, sm: 3 }} mt="xs">
           {byThreshold.map(({ value, demand: counted }) => (
@@ -175,7 +190,14 @@ function OutlookPanel({
               <Group wrap="nowrap" align="flex-start">
                 <Radio.Indicator />
                 <Stack gap={2}>
-                  <Text fw={700}>{percent(value)}以上</Text>
+                  <Group gap={8} wrap="nowrap">
+                    <Text fw={700}>{percent(value)}以上</Text>
+                    {value === DEAL_DEMAND_DEFAULTS.threshold && (
+                      <Badge variant="outline" color="blue" radius="sm" size="sm" fz="xs">
+                        計画に渡す
+                      </Badge>
+                    )}
+                  </Group>
                   <Text size="sm" className="tabular">
                     {counted.counted.length}件・{counted.byPart.length}型番
                   </Text>
@@ -346,7 +368,7 @@ function MonthTable({ demand, value, onValue }: { demand: DealDemand; value: Mon
                     const amount = cell(partNumber, month)
                     return (
                       <Table.Td key={month} ta="right" className="tabular" c={amount === 0 ? 'dimmed' : undefined}>
-                        {amount === 0 ? '-' : pieces(amount)}
+                        {amount === 0 ? '—' : pieces(amount)}
                       </Table.Td>
                     )
                   })}
@@ -398,19 +420,52 @@ function DealLink({ deal, onEdit }: { deal: Deal; onEdit: (deal: Deal) => void }
   )
 }
 
-function ListPanel({ insights, today, parts, onEdit }: { insights: DealInsights; today: IsoDate; parts: Part[]; onEdit: (deal: Deal) => void }) {
+function ListPanel({
+  insights,
+  today,
+  parts,
+  onEdit,
+  pointed,
+  onPointed,
+}: {
+  insights: DealInsights
+  today: IsoDate
+  parts: Part[]
+  onEdit: (deal: Deal) => void
+  pointed: string | null
+  onPointed: () => void
+}) {
   const [scope, setScope] = useState<'open' | 'all'>('open')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
   const tableRef = useRef<HTMLDivElement>(null)
   const { deals, chances } = insights
+  // The deals handed to the plan, at its threshold.
+  const counted = new Set(insights.handoffDemand.counted.map((entry) => entry.deal.id))
   const words = query.trim().toLowerCase()
   const shown = deals
     .filter((deal) => scope === 'all' || dealStatus(deal.stage) === 'open')
     .filter((deal) => words === '' || [deal.name, deal.customer, deal.partNumber, deal.owner].some((field) => field.toLowerCase().includes(words)))
     .sort((a, b) => (scope === 'all' ? b.closeDate.localeCompare(a.closeDate) : a.closeDate.localeCompare(b.closeDate)) || a.id.localeCompare(b.id))
   const pages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE))
-  const current = Math.min(page, pages)
+  const pointedPage = pointed ? Math.floor(shown.findIndex((deal) => deal.id === pointed) / PAGE_SIZE) + 1 : 0
+  const current = Math.min(pointedPage > 0 ? pointedPage : page, pages)
+  // The deal just saved is brought into view, marked for a moment and given keyboard focus.
+  // Its page stays shown until the planner moves to another.
+  useEffect(() => {
+    if (!pointed) return
+    const row = document.getElementById(`deal-row-${pointed}`)
+    if (!row) return
+    row.scrollIntoView({ block: 'center' })
+    row.classList.add('is-pointed')
+    // After the drawer has closed and handed focus back to what opened it.
+    const focus = window.setTimeout(() => row.querySelector<HTMLElement>('button')?.focus({ preventScroll: true }), 350)
+    const fade = window.setTimeout(() => row.classList.remove('is-pointed'), 2400)
+    return () => {
+      window.clearTimeout(focus)
+      window.clearTimeout(fade)
+    }
+  }, [pointed])
   return (
     <Stack gap="sm">
       <Group gap="sm" wrap="wrap">
@@ -425,6 +480,7 @@ function ListPanel({ insights, today, parts, onEdit }: { insights: DealInsights;
           onChange={(value) => {
             setScope(value as 'open' | 'all')
             setPage(1)
+            onPointed()
           }}
         />
         <TextInput
@@ -435,6 +491,7 @@ function ListPanel({ insights, today, parts, onEdit }: { insights: DealInsights;
           onChange={(event) => {
             setQuery(event.currentTarget.value)
             setPage(1)
+            onPointed()
           }}
           w={280}
         />
@@ -443,20 +500,21 @@ function ListPanel({ insights, today, parts, onEdit }: { insights: DealInsights;
         </Text>
       </Group>
       <Paper withBorder ref={tableRef}>
-        <Table.ScrollContainer minWidth={940}>
+        <Table.ScrollContainer minWidth={1000}>
           <Table verticalSpacing={6} highlightOnHover>
             <Table.Thead>
               <Table.Tr>
+                {/* The chance and whether the deal goes to the plan come right after its name. */}
                 <Table.Th className="sticky-col">商談名</Table.Th>
-                <Table.Th>取引先</Table.Th>
-                <Table.Th>担当者</Table.Th>
-                <Table.Th>型番</Table.Th>
+                <Table.Th ta="right">受注確率</Table.Th>
                 <Table.Th>ステージ</Table.Th>
                 <Table.Th ta="right">受注予定日</Table.Th>
-                <Table.Th ta="right">延期</Table.Th>
+                <Table.Th>型番</Table.Th>
                 <Table.Th ta="right">量産数量（月）</Table.Th>
-                <Table.Th ta="right">受注確率</Table.Th>
                 <Table.Th ta="right">期待数量</Table.Th>
+                <Table.Th>取引先</Table.Th>
+                <Table.Th>担当者</Table.Th>
+                <Table.Th ta="right">延期</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -473,33 +531,40 @@ function ListPanel({ insights, today, parts, onEdit }: { insights: DealInsights;
                 const probability = chances.get(deal.id)
                 const open = dealStatus(deal.stage) === 'open'
                 return (
-                  <Table.Tr key={deal.id}>
+                  <Table.Tr key={deal.id} id={`deal-row-${deal.id}`}>
                     <Table.Th scope="row" className="sticky-col" fw={400}>
                       <Stack gap={2} align="flex-start">
                         <DealLink deal={deal} onEdit={onEdit} />
                         {open && <ProblemBadges problems={dealProblems(deal, parts, today)} />}
                       </Stack>
                     </Table.Th>
-                    <Table.Td>{deal.customer}</Table.Td>
-                    <Table.Td>{deal.owner}</Table.Td>
-                    <Table.Td>{deal.partNumber || '-'}</Table.Td>
+                    <Table.Td ta="right" className="tabular">
+                      <Group gap={6} justify="flex-end" wrap="nowrap">
+                        {counted.has(deal.id) && (
+                          <Badge variant="outline" color="blue" radius="sm" size="sm" fz="xs" miw="max-content">
+                            計画に渡す
+                          </Badge>
+                        )}
+                        {probability === undefined ? '—' : chance(probability)}
+                      </Group>
+                    </Table.Td>
                     <Table.Td>
                       <StageBadge stage={deal.stage} />
                     </Table.Td>
                     <Table.Td ta="right" className="tabular" c={open && deal.closeDate < today ? 'red' : undefined}>
                       {dateInYear(deal.closeDate, today)}
                     </Table.Td>
-                    <Table.Td ta="right" className="tabular" fw={deal.postponeCount >= 3 ? 700 : undefined}>
-                      {deal.postponeCount}
-                    </Table.Td>
+                    <Table.Td>{deal.partNumber || '—'}</Table.Td>
                     <Table.Td ta="right" className="tabular">
                       {pieces(deal.monthlyQuantity)}
                     </Table.Td>
                     <Table.Td ta="right" className="tabular">
-                      {probability === undefined ? '-' : chance(probability)}
+                      {probability === undefined ? '—' : pieces(deal.monthlyQuantity * probability)}
                     </Table.Td>
-                    <Table.Td ta="right" className="tabular">
-                      {probability === undefined ? '-' : pieces(deal.monthlyQuantity * probability)}
+                    <Table.Td>{deal.customer}</Table.Td>
+                    <Table.Td>{deal.owner}</Table.Td>
+                    <Table.Td ta="right" className="tabular" fw={deal.postponeCount >= 3 ? 700 : undefined}>
+                      {deal.postponeCount}
                     </Table.Td>
                   </Table.Tr>
                 )
@@ -514,6 +579,7 @@ function ListPanel({ insights, today, parts, onEdit }: { insights: DealInsights;
           value={current}
           onChange={(next) => {
             setPage(next)
+            onPointed()
             tableRef.current?.scrollIntoView({ block: 'start' })
           }}
           getControlProps={(control) => ({ 'aria-label': PAGE_CONTROLS[control] ?? control })}
@@ -643,7 +709,7 @@ function ModelPanel({ insights }: { insights: DealInsights }) {
                     {bin.rows > 0 && <div className="bar-mark" style={{ left: `${bin.predicted * 100}%` }} />}
                   </div>
                   <Text size="sm" w={128} ta="right" className="tabular">
-                    {bin.rows === 0 ? '-' : `予測${percent(bin.predicted)} 実際${percent(bin.won)}`}
+                    {bin.rows === 0 ? '—' : `予測${percent(bin.predicted)} 実際${percent(bin.won)}`}
                   </Text>
                 </Group>
               ))}

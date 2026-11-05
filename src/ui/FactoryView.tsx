@@ -1,4 +1,4 @@
-import { ActionIcon, Loader, Paper, Text, UnstyledButton, useComputedColorScheme } from '@mantine/core'
+import { ActionIcon, Loader, Paper, Text, Title, UnstyledButton, useComputedColorScheme } from '@mantine/core'
 import { useReducedMotion } from '@mantine/hooks'
 import { useProgress } from '@react-three/drei'
 import { IconMinus, IconPlus } from '@tabler/icons-react'
@@ -108,6 +108,9 @@ export default function FactoryView({ plan, today }: Props) {
   const now = `${pad(clock.getHours())}:${pad(clock.getMinutes())}`
   return (
     <div className="factory">
+      <Title order={2} size="h4">
+        現場
+      </Title>
       <div className="factory-stage" ref={stage}>
         <div className="factory-drawing" aria-hidden="true" ref={drawing}>
           <span className="factory-now tabular">今 {now}</span>
@@ -152,7 +155,14 @@ export default function FactoryView({ plan, today }: Props) {
       </div>
       {/* Material, the crews and finished goods from left to right, in the order of the floor above. */}
       <Paper withBorder className="factory-list" component="section" aria-label={`現場の今 ${now}`}>
-        <StoreList title="材料" rows={data.parts.map((part) => [part.partNumber, `${(part.materialStock ?? 0).toLocaleString('ja-JP')}個分`])} />
+        <StoreList
+          title="材料"
+          rows={data.parts.map((part) => [
+            part.partNumber,
+            `${(part.materialStock ?? 0).toLocaleString('ja-JP')}個分`,
+            part.materialStock === 0,
+          ])}
+        />
         {layout.zones.map((zone) => (
           <section key={zone.name || 'none'}>
             {zone.name && (
@@ -195,21 +205,25 @@ export default function FactoryView({ plan, today }: Props) {
             </ul>
           </section>
         ))}
-        <StoreList title="完成品" rows={data.parts.map((part) => [part.partNumber, `${part.stock.toLocaleString('ja-JP')}個`])} />
+        <StoreList
+          title="完成品"
+          rows={data.parts.map((part) => [part.partNumber, `${part.stock.toLocaleString('ja-JP')}個`, part.stock <= 0])}
+        />
       </Paper>
     </div>
   )
 }
 
-function StoreList({ title, rows }: { title: string; rows: [string, string][] }) {
+// Each part's stock; an empty one reads in red and bold, as on the floor above.
+function StoreList({ title, rows }: { title: string; rows: [string, string, boolean][] }) {
   return (
     <section>
       <Text size="xs" c="dimmed" className="factory-list-head">
         {title}
       </Text>
       <dl className="factory-store tabular">
-        {rows.map(([part, pieces]) => (
-          <div key={part}>
+        {rows.map(([part, pieces, empty]) => (
+          <div key={part} className={empty ? 'tone-late is-empty' : undefined}>
             <dt>{part}</dt>
             <dd>{pieces}</dd>
           </div>

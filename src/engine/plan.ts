@@ -58,24 +58,42 @@ export function releaseTiming(state: PlanState, item: Replenishment, extra: Chan
       (earliest, operation) => (earliest && earliest.start <= operation.start ? earliest : operation),
       null,
     )
-  const startAt = first?.startAt ?? null
-  const cover = materialCover(state.data, item.partNumber, item.quantity)
-  const lead = state.data.parts.find((part) => part.partNumber === item.partNumber)?.materialLeadDays
+  return materialTiming(state.data, state.settings, state.today, item.partNumber, item.quantity, first?.startAt ?? null)
+}
+
+// When to order the material for `pieces` of a part to start at `startAt`, as ReleaseTiming
+// tells it. Also used for an order already added to the plan, whose material the plan does
+// not wait for either.
+export function materialTiming(
+  data: PlantData,
+  settings: Settings,
+  today: IsoDate,
+  partNumber: string,
+  pieces: number,
+  startAt: string | null,
+): ReleaseTiming {
+  const cover = materialCover(data, partNumber, pieces)
+  const lead = data.parts.find((part) => part.partNumber === partNumber)?.materialLeadDays
   if (!startAt || !cover || cover.kind === 'ready' || lead === undefined) {
     return { startAt, materialOrderBy: null, materialLate: false, materialArrives: null, materialLeadDays: lead ?? null }
   }
-  const { workWeekdays } = state.settings
+  const { workWeekdays } = settings
   const start = startAt.slice(0, 10)
   const orderBy = workdayNear(addDays(start, -lead), workWeekdays, -1)
-  const arrives = workdayNear(addDays(state.today, lead), workWeekdays, 1)
+  const arrives = workdayNear(addDays(today, lead), workWeekdays, 1)
   const late = arrives > start
   return {
     startAt,
-    materialOrderBy: late || orderBy >= state.today ? orderBy : state.today,
+    materialOrderBy: late || orderBy >= today ? orderBy : today,
     materialLate: late,
     materialArrives: late ? arrives : null,
     materialLeadDays: lead,
   }
+}
+
+// The working day material ordered today arrives on, the lead time on.
+export function arrivalIfOrderedToday(settings: Settings, today: IsoDate, leadDays: number): IsoDate {
+  return workdayNear(addDays(today, leadDays), settings.workWeekdays, 1)
 }
 
 // The date itself when it is a working day, else the nearest working day before it (-1)

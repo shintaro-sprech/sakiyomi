@@ -1,4 +1,5 @@
-import { Group, Text, Title } from '@mantine/core'
+import { Group, Text, Title, UnstyledButton } from '@mantine/core'
+import { IconChevronRight } from '@tabler/icons-react'
 
 import type { FocusItem } from '../engine/focus'
 import type { IsoDate } from '../engine/types'
@@ -8,12 +9,14 @@ import { Mascot } from './Mascot'
 type Props = {
   items: FocusItem[]
   today: IsoDate
+  // Takes the planner to where the item is dealt with.
+  onSelect: (item: FocusItem) => void
 }
 
 type Line = { title: string; detail: string; tag: string; tone: 'red' | 'orange' | 'blue' }
 
 // What to act on first today, in the order a planner would take it.
-export function TodayFocus({ items, today }: Props) {
+export function TodayFocus({ items, today, onSelect }: Props) {
   return (
     <section className="today-focus" aria-labelledby="today-focus-title">
       <Group gap="sm" wrap="nowrap" mb={4}>
@@ -32,20 +35,25 @@ export function TodayFocus({ items, today }: Props) {
             const line = describe(item, today)
             return (
               <li key={`${item.kind}-${index}`} className="focus-item" style={{ animationDelay: `${120 + index * 90}ms` }}>
-                <span className="focus-number" aria-hidden="true">
-                  {index + 1}
-                </span>
-                <div className="focus-body">
-                  <Text fw={700} className="phrase">
-                    {line.title}
-                  </Text>
-                  <Text size="sm" c="dimmed" className="phrase tabular">
-                    {line.detail}
-                  </Text>
-                </div>
-                <Text fw={700} c={line.tone} className="focus-tag tabular">
-                  {line.tag}
-                </Text>
+                <UnstyledButton className="focus-button" onClick={() => onSelect(item)}>
+                  <span className="focus-number" aria-hidden="true">
+                    {index + 1}
+                  </span>
+                  <span className="focus-body">
+                    <span className="focus-headline">
+                      <Text component="span" fw={700} className="focus-title phrase">
+                        {line.title}
+                      </Text>
+                      <Text component="span" fw={700} c={line.tone} className="focus-tag tabular">
+                        {line.tag}
+                      </Text>
+                    </span>
+                    <Text component="span" size="sm" c="dimmed" display="block" className="phrase tabular">
+                      {line.detail}
+                    </Text>
+                  </span>
+                  <IconChevronRight size={18} className="focus-chevron" aria-hidden="true" />
+                </UnstyledButton>
               </li>
             )
           })}
@@ -93,10 +101,10 @@ function describe(item: FocusItem, today: IsoDate): Line {
       }
     case 'promiseMissed':
       return {
-        title: `注番${item.orderId}の${item.customer}分が回答納期に間に合わない`,
+        title: `注番${item.orderId}の${item.customer}分が回答納期に遅れる`,
         detail: `回答納期${shortDate(item.answered)}　完成見込み${shortDate(item.finishDate)}`,
         tag: `${item.daysLate}日遅れ`,
-        tone: 'orange',
+        tone: 'red',
       }
     case 'shortage':
       return {

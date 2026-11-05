@@ -652,7 +652,12 @@ function Store({
           <group key={part.partNumber} position={[0, 0, zs[index]]}>
             <StorePallet layers={layers} color={kind === 'material' ? colors.material : colors.carton} />
             {wide && (
-              <Label position={[0, 0.15, 0.85]} center className="factory-tag" zIndexRange={[20, 0]}>
+              <Label
+                position={[0, 0.15, 0.85]}
+                center
+                className={`factory-tag${(kind === 'material' ? part.materialStock === 0 : pieces <= 0) ? ' is-empty' : ''}`}
+                zIndexRange={[20, 0]}
+              >
                 {part.partNumber} {pieces.toLocaleString('ja-JP')}個{kind === 'material' ? '分' : ''}
               </Label>
             )}

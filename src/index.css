@@ -200,22 +200,22 @@ html {
 .progress-table {
   border-collapse: collapse;
   width: 100%;
-  min-width: 940px;
+  min-width: 640px;
   font-size: var(--mantine-font-size-sm);
 }
 
 .progress-table th {
   text-align: left;
-  font-size: var(--mantine-font-size-xs);
+  font-size: 13px;
   font-weight: 600;
   color: var(--sk-text-dimmed);
-  padding: 10px 6px;
+  padding: 10px 4px;
   border-bottom: 1px solid var(--sk-border);
   white-space: nowrap;
 }
 
 .progress-table td {
-  padding: 6px;
+  padding: 6px 4px;
   border-bottom: 1px solid var(--sk-border);
   vertical-align: middle;
   white-space: nowrap;
@@ -239,12 +239,6 @@ html {
   background: var(--sk-selected-fill);
 }
 
-/* The class B badge takes a deeper clay in light mode, about 7:1 on white. */
-:root[data-mantine-color-scheme='light'] .class-badge-b {
-  color: var(--mantine-color-orange-8);
-  border-color: var(--mantine-color-orange-8);
-}
-
 /* The fill is faint, so a bar on the left edge marks the chosen row. */
 .progress-table tr.is-selected td:first-child,
 tr.is-chosen > :first-child {
@@ -262,18 +256,35 @@ tr.is-chosen .mantine-Anchor-root {
   border-right: 1px solid var(--sk-border);
 }
 
+/* A row with a lot stopped too long carries a red bar on its left edge, as a chosen row carries
+   its own; the red one wins, the fill still says the row is chosen. */
+.progress-table tr.has-stuck td:first-child {
+  box-shadow: inset 3px 0 0 var(--sk-danger);
+}
+
+/* The open steps start right after the passed ones and wrap rather than run off the table. */
+.progress-table .col-steps {
+  width: 100%;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 /* Work by process and urgency */
 
 /* Keyboard focus scrolls cells clear of the sticky first column. */
 .wip-wrap {
-  scroll-padding-left: 112px;
+  scroll-padding-left: 120px;
 }
 
 .wip-board {
   border-collapse: collapse;
   width: 100%;
-  min-width: calc(112px + var(--wip-columns) * 64px);
-  font-size: 12px;
+  min-width: calc(120px + var(--wip-columns) * 72px);
+  font-size: 14px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -290,7 +301,7 @@ tr.is-chosen .mantine-Anchor-root {
 }
 
 .wip-board .sticky-col {
-  width: 112px;
+  width: 120px;
   text-align: left;
 }
 
@@ -322,7 +333,7 @@ tr.is-chosen .mantine-Anchor-root {
 .wip-count strong {
   display: inline-flex;
   align-items: center;
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .wip-empty {
@@ -344,7 +355,7 @@ tr.is-chosen .mantine-Anchor-root {
 
 .wip-month-label {
   margin-top: 2px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--sk-text-dimmed);
 }
 
@@ -362,7 +373,7 @@ tr.is-chosen .mantine-Anchor-root {
 }
 
 .wip-ratio {
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .wip-reason {
@@ -370,8 +381,14 @@ tr.is-chosen .mantine-Anchor-root {
   align-items: center;
   gap: 2px;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: 13px;
+  color: var(--sk-text-dimmed);
+}
+
+/* Stock running out is a shortage: red, and bold beside its icon. */
+.wip-reason.is-stockout {
   color: var(--sk-danger);
+  font-weight: 700;
 }
 
 .sort-head {
@@ -403,16 +420,12 @@ tr.is-chosen .mantine-Anchor-root {
   margin-left: 2px;
 }
 
-.urgency-A {
-  background: var(--sk-class-a-fill);
-}
-
-.urgency-B {
-  background: var(--sk-class-b-fill);
-}
-
+/* Every cell with work in it is one quiet tile; the row's badge says how urgent it is, so red
+   is left for what has gone wrong. */
+.urgency-A,
+.urgency-B,
 .urgency-C {
-  background: var(--sk-muted-surface);
+  background: var(--mantine-color-gray-1);
 }
 
 /* The board's headers and cells are buttons, with the same feedback as the chips below. */
@@ -466,6 +479,20 @@ tr.is-chosen .mantine-Anchor-root {
   outline-offset: 1px;
 }
 
+/* A cell holding a lot stopped too long: a 2px red edge on a pale red fill, as its chip below has. */
+.wip-cell.is-stuck,
+.wip-cell.is-stuck:hover {
+  border-color: var(--sk-danger);
+  box-shadow: inset 0 0 0 1px var(--sk-danger);
+  background: var(--sk-fill-low);
+}
+
+.wip-cell.is-stuck.is-selected {
+  box-shadow:
+    inset 0 0 0 1px var(--sk-danger),
+    0 0 0 2px var(--sk-focus);
+}
+
 /* Chips and the overall cell are buttons: they share hover, focus and press feedback. */
 .overall,
 .chip {
@@ -502,11 +529,11 @@ tr.is-chosen .mantine-Anchor-root {
 .overall {
   display: flex;
   flex-direction: column;
-  width: 124px;
+  width: 112px;
   min-height: 82px;
-  padding: 5px 8px;
+  padding: 5px 6px;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -534,12 +561,13 @@ tr.is-chosen .mantine-Anchor-root {
   border-bottom-right-radius: 3px;
 }
 
+/* Not yet started in gray and under way in the plan's blue, both 3:1 or more on the card. */
 .seg-unstarted {
-  background: var(--sk-unstarted);
+  background: var(--mantine-color-gray-6);
 }
 
 .seg-wip {
-  background: var(--sk-wip-fill);
+  background: var(--sk-accent);
 }
 
 .seg-done {
@@ -557,7 +585,8 @@ tr.is-chosen .mantine-Anchor-root {
 
 .warn-icon {
   color: var(--sk-danger);
-  font-size: 13px;
+  font-size: 15px;
+  line-height: 1;
   margin-left: 3px;
 }
 
@@ -566,31 +595,28 @@ tr.is-chosen .mantine-Anchor-root {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  width: 102px;
-  height: 44px;
-  padding: 0 7px;
+  width: 112px;
+  height: 46px;
+  padding: 0 7px 3px;
   overflow: hidden;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.35;
   text-align: left;
   font-variant-numeric: tabular-nums;
 }
 
-.chip-fill {
+/* How far the step has got: a thin band in the plan's blue along the foot of the chip. */
+.chip-track {
   position: absolute;
-  inset: 0 auto 0 0;
+  inset: auto 0 0 0;
+  height: 4px;
+  background: var(--mantine-color-gray-2);
 }
 
-.chip-low .chip-fill {
-  background: var(--sk-fill-low);
-}
-
-.chip-mid .chip-fill {
-  background: var(--sk-fill-mid);
-}
-
-.chip-high .chip-fill {
-  background: var(--sk-fill-high);
+.chip-fill {
+  display: block;
+  height: 100%;
+  background: var(--sk-accent);
 }
 
 .chip-line {
@@ -612,41 +638,48 @@ tr.is-chosen .mantine-Anchor-root {
   white-space: nowrap;
 }
 
-.chip-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-right: 4px;
-  border-radius: 50%;
-  vertical-align: 1px;
-  background: var(--sk-danger);
-}
-
-.chip-mid .chip-dot {
-  background: var(--sk-warn);
-}
-
-.chip-high .chip-dot {
-  background: var(--sk-done);
-}
-
 .chip-idle {
   color: var(--sk-text-dimmed);
 }
 
-.chip-idle .chip-dot {
-  background: var(--sk-unstarted);
-}
-
+/* Steps every piece has passed: quiet, on the ground color, with a green tick. Not a button. */
 .chip-done {
-  background: var(--sk-done);
-  border-color: var(--sk-done);
-  color: var(--mantine-color-white);
+  padding-bottom: 0;
+  background: var(--sk-muted-surface);
+  cursor: default;
 }
 
 .chip-done:hover {
-  border-color: var(--sk-done);
-  filter: brightness(1.08);
+  border-color: var(--sk-border);
+  box-shadow: none;
+}
+
+.chip-done:active {
+  transform: none;
+}
+
+.chip-done .chip-line {
+  justify-content: flex-start;
+  font-weight: 400;
+}
+
+.chip-done .chip-sub {
+  justify-content: center;
+}
+
+.chip-check {
+  margin-right: 4px;
+  color: var(--sk-done);
+  font-weight: 700;
+}
+
+/* A step holding a lot stopped too long: the loudest thing in the table, a 2px red edge on a
+   pale red fill. */
+.chip-stuck,
+.chip-stuck:hover {
+  border-color: var(--sk-danger);
+  box-shadow: inset 0 0 0 1px var(--sk-danger);
+  background: var(--sk-fill-low);
 }
 
 /* Shared detail list (Gantt detail, option cards, decision log) */
@@ -677,18 +710,24 @@ tr.is-chosen .mantine-Anchor-root {
   font-size: var(--mantine-font-size-xs);
 }
 
+/* In the decision log, read later at leisure, the reasons are body text. */
+.decision-card .option-notes {
+  font-size: var(--mantine-font-size-sm);
+}
+
 /* Gantt */
 
 .legend {
-  font-size: var(--mantine-font-size-xs);
+  font-size: 13px;
   color: var(--sk-text-dimmed);
 }
 
 .legend-item::before {
   content: '';
   display: inline-block;
-  width: 12px;
-  height: 10px;
+  box-sizing: border-box;
+  width: 14px;
+  height: 12px;
   margin-right: 5px;
   border-radius: 2px;
   vertical-align: -1px;
@@ -698,12 +737,14 @@ tr.is-chosen .mantine-Anchor-root {
   background: var(--sk-accent);
 }
 
+/* The samples are drawn as the bars are: yellow with a clay edge, red with stripes. */
 .legend-item.bar-tight::before {
   background: var(--sk-tight-fill);
+  border: 1px solid var(--sk-tight-edge);
 }
 
 .legend-item.bar-late::before {
-  background: var(--sk-late-fill);
+  background: var(--sk-late-stripes), var(--sk-late-fill);
 }
 
 .legend-item.bar-planned::before {
@@ -711,11 +752,13 @@ tr.is-chosen .mantine-Anchor-root {
 }
 
 .legend-item.bar-down::before {
-  background: repeating-linear-gradient(135deg, var(--sk-danger) 0 2px, transparent 2px 4px);
+  background: var(--sk-down-stripes);
+  border: 1px solid var(--sk-danger);
 }
 
+/* Setup is the dark-striped start of a bar, so its sample is a striped bar. */
 .legend-item.bar-setup::before {
-  background: repeating-linear-gradient(135deg, var(--sk-text-dimmed) 0 2px, transparent 2px 4px);
+  background: var(--sk-setup-stripes), var(--sk-accent);
 }
 
 /* The time now on the first day: the text color, so it reads apart from the late (red) bars.
@@ -760,15 +803,16 @@ tr.is-chosen .mantine-Anchor-root {
   border-radius: 3px;
   background: var(--mantine-color-text);
   color: var(--mantine-color-body);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 16px;
   text-align: center;
   white-space: nowrap;
 }
 
+/* Below the header, the screen's title and the controls, the chart fills the rest of the window. */
 .gantt-scroll {
   overflow: auto;
-  max-height: calc(100vh - 190px);
+  max-height: calc(100vh - 236px);
 }
 
 .gantt-row {
@@ -788,7 +832,7 @@ tr.is-chosen .mantine-Anchor-root {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  flex: 0 0 180px;
+  flex: 0 0 var(--gantt-label, 180px);
   padding: 4px;
   background: var(--sk-surface);
   border-right: 1px solid var(--sk-border);
@@ -796,8 +840,33 @@ tr.is-chosen .mantine-Anchor-root {
 }
 
 .gantt-label span {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--sk-text-dimmed);
+}
+
+/* On a phone the equipment column narrows to its name and processes. */
+.gantt-grid.is-narrow .gantt-label {
+  padding: 2px;
+  font-size: 13px;
+}
+
+.gantt-grid.is-narrow .gantt-label span {
+  font-size: 12px;
+}
+
+.gantt-grid.is-narrow .gantt-equipment {
+  padding: 4px 5px;
+}
+
+.gantt-grid.is-narrow .gantt-equipment > * {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gantt-grid.is-narrow .gantt-last {
+  display: none;
 }
 
 /* Each equipment's name is a button that lists everything it runs. */
@@ -844,7 +913,7 @@ tr.is-chosen .mantine-Anchor-root {
   z-index: 4;
   background: var(--sk-surface);
   min-height: 64px;
-  font-size: var(--mantine-font-size-xs);
+  font-size: 13px;
   color: var(--sk-text-dimmed);
 }
 
@@ -910,7 +979,7 @@ tr.is-chosen .mantine-Anchor-root {
   left: 0;
   transform: translateX(-50%);
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 14px;
   color: var(--sk-text-dimmed);
   font-variant-numeric: tabular-nums;
@@ -925,12 +994,17 @@ tr.is-chosen .mantine-Anchor-root {
   transform: translateX(calc(-100% - 3px));
 }
 
-/* Days off in the crew table: the same shade as on the Gantt chart. */
+/* Days off in the crew table. */
 th.is-off,
-td.is-off,
+td.is-off {
+  background: var(--sk-muted-surface);
+}
+
+/* The hours a machine does not work on the Gantt chart: a shade that stands off the white of
+   the working hours. */
 .gantt-day.is-off,
 .gantt-shade {
-  background: var(--sk-muted-surface);
+  background: var(--mantine-color-gray-2);
 }
 
 .gantt-shade {
@@ -939,12 +1013,10 @@ td.is-off,
   bottom: 0;
 }
 
-.gantt-shade.is-down {
-  background: repeating-linear-gradient(135deg, var(--sk-fill-low) 0 6px, transparent 6px 12px);
-}
-
+/* A day a machine is down, and a machine stopped altogether: red stripes, as stopped work is. */
+.gantt-shade.is-down,
 .is-stopped .gantt-track {
-  background: repeating-linear-gradient(135deg, var(--sk-muted-surface) 0 6px, transparent 6px 12px);
+  background: var(--sk-down-stripes);
 }
 
 .gantt-bar {
@@ -960,9 +1032,20 @@ td.is-off,
   border: 1px solid transparent;
   color: var(--sk-bar-text);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   text-align: left;
   cursor: pointer;
+}
+
+/* The yellow is pale against the track, so a clay edge holds the bar's shape at 3:1 or more;
+   the red takes darker stripes, as the shortages on this month's plan, so it reads apart from
+   the blue without color. Both leave the text at 4.5:1 or more. */
+.gantt-grid,
+.legend {
+  --sk-tight-edge: var(--mantine-color-orange-7);
+  --sk-late-stripes: repeating-linear-gradient(135deg, rgb(0 0 0 / 32%) 0 3px, transparent 3px 8px);
+  --sk-setup-stripes: repeating-linear-gradient(135deg, rgb(0 0 0 / 35%) 0 2px, transparent 2px 4px);
+  --sk-down-stripes: repeating-linear-gradient(135deg, var(--sk-danger) 0 2px, transparent 2px 8px);
 }
 
 .gantt-bar.bar-ok {
@@ -971,11 +1054,12 @@ td.is-off,
 
 .gantt-bar.bar-tight {
   background: var(--sk-tight-fill);
+  border-color: var(--sk-tight-edge);
   color: var(--sk-tight-text);
 }
 
 .gantt-bar.bar-late {
-  background: var(--sk-late-fill);
+  background: var(--sk-late-stripes), var(--sk-late-fill);
 }
 
 .gantt-bar:hover {
@@ -1010,7 +1094,7 @@ td.is-off,
 .bar-setup-part {
   flex: 0 0 auto;
   align-self: stretch;
-  background: repeating-linear-gradient(135deg, rgb(0 0 0 / 35%) 0 2px, transparent 2px 4px);
+  background: var(--sk-setup-stripes);
 }
 
 .bar-text {
@@ -1018,7 +1102,7 @@ td.is-off,
   flex-direction: column;
   min-width: 0;
   padding: 0 6px;
-  line-height: 16px;
+  line-height: 17px;
 }
 
 .bar-text > span {
@@ -1417,17 +1501,46 @@ tr.is-before > * {
 
 .focus-list {
   list-style: none;
+  max-width: 736px;
   margin: 0;
   padding: 0;
 }
 
 .focus-item {
+  border-top: 1px solid var(--sk-border);
+  animation: sk-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* The whole item takes the planner to where it is dealt with. */
+.focus-button {
   display: flex;
   align-items: baseline;
   gap: 16px;
-  padding: 12px 0;
-  border-top: 1px solid var(--sk-border);
-  animation: sk-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  width: 100%;
+  max-width: 720px;
+  padding: 12px 8px;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.focus-button:hover {
+  background: var(--sk-muted-surface);
+}
+
+.focus-chevron {
+  flex: none;
+  align-self: center;
+  color: var(--sk-text-dimmed);
+}
+
+.focus-headline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 12px;
+}
+
+.focus-title {
+  font-size: 18px;
 }
 
 .focus-number {
@@ -1440,6 +1553,7 @@ tr.is-before > * {
 }
 
 .focus-body {
+  display: block;
   flex: 1 1 auto;
   min-width: 0;
 }
@@ -1462,7 +1576,7 @@ tr.is-before > * {
 .profit-value {
   font-family: var(--mantine-font-family-headings);
   font-weight: 500;
-  font-size: 44px;
+  font-size: 32px;
   line-height: 1.15;
   white-space: nowrap;
 }
@@ -1478,7 +1592,7 @@ tr.is-before > * {
 
 .metric-value {
   font-family: var(--mantine-font-family-headings);
-  font-size: 26px;
+  font-size: 22px;
   line-height: 1.3;
   white-space: nowrap;
 }
@@ -1913,7 +2027,7 @@ tr.is-before > * {
 
 .factory-machine-state {
   color: var(--sk-text-dimmed);
-  font-size: var(--mantine-font-size-xs);
+  font-size: 13px;
   white-space: nowrap;
 }
 
@@ -1966,7 +2080,12 @@ tr.is-before > * {
   gap: 2px 12px;
   margin: 0;
   padding: 0 8px;
-  font-size: var(--mantine-font-size-xs);
+  font-size: 13px;
+}
+
+/* No stock of a part: red and bold, not by color alone. */
+.factory-store .is-empty {
+  font-weight: 700;
 }
 
 .factory-store > div {
@@ -1980,6 +2099,7 @@ tr.is-before > * {
 
 .tone-late {
   color: var(--sk-danger);
+  font-weight: 700;
 }
 
 .tone-tight {
@@ -2004,7 +2124,15 @@ tr.is-before > * {
 }
 
 .factory-tag {
-  font-size: 11px;
+  font-size: 12px;
+}
+
+/* A part with nothing on its pallet: the tag takes a red edge and red bold text. */
+.factory-tag.is-empty {
+  border-color: var(--sk-danger);
+  box-shadow: 0 0 0 1px var(--sk-danger);
+  color: var(--sk-danger);
+  font-weight: 700;
 }
 
 .factory-queue {
@@ -2142,4 +2270,53 @@ tr.is-before > * {
 /* A short header that would read wrong broken in the middle of a word. */
 .nowrap {
   white-space: nowrap;
+}
+
+/* A row a focus item points to is marked for a moment. */
+.is-pointed > * {
+  animation: sk-pointed 2.4s ease-out;
+}
+
+@keyframes sk-pointed {
+  0%,
+  40% {
+    background: var(--mantine-color-yellow-1);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-pointed > * {
+    animation: none;
+    background: var(--mantine-color-yellow-1);
+  }
+}
+
+/* The chosen card of a choice made with cards stands out by its edge, not only its dot. */
+.mantine-RadioCard-card[data-checked] {
+  border: 2px solid var(--mantine-color-text);
+}
+
+/* Fields stand off the page and the cards at 3:1 or more (WCAG 1.4.11). */
+.mantine-Input-input {
+  --input-bd: var(--mantine-color-gray-6);
+}
+
+/* Unchosen radios, radio cards and chips, and the steppers of number fields, stand off at 3:1. */
+.mantine-Radio-radio,
+.mantine-RadioIndicator-indicator,
+.mantine-RadioCard-card:not([data-checked]),
+.mantine-Chip-label:not([data-checked]) {
+  border-color: var(--mantine-color-gray-6);
+}
+
+.mantine-NumberInput-control {
+  color: var(--mantine-color-gray-7);
+}
+
+/* The header and the page keep their width whether the page scrolls or not. */
+html {
+  scrollbar-gutter: stable;
 }

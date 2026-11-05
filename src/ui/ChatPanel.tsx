@@ -40,7 +40,7 @@ function samplePrompts({ today, settings }: PlanState): string[] {
   const when = stopOn === tomorrow ? '明日' : `${WEEKDAY_NAMES[weekday(stopOn)]}曜に`
   return [
     '注番1045の材料が2日遅れると連絡がありました',
-    '注番1022を90個に増やせますか？',
+    '旋回フレームの部品の商談が取れたら、納期に間に合いますか？',
     `マシニング1が${when}1日止まります`,
     '今いちばん危ない注番はどれ？',
   ]
