@@ -22,6 +22,7 @@ export const COLORS = {
   material: '#9C9A92',
   steel: '#9C9A92',
   clay: '#D97757',
+  carton: '#C69C6D',
   muted: '#D1CFC5',
   // The plan board: a pane of pale glass with a darker edge, and the lines from it.
   glass: '#F6F8FB',

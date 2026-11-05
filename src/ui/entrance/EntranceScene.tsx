@@ -46,12 +46,13 @@ type Props = {
 type Tier = 'full' | 'light'
 
 // Every model the scene uses, loaded together once, as soon as this file is.
-const MODELS = ['material_rack', 'rack_stock', 'pallet', 'truck', 'forklift', ...STEPS.map((step) => step.model)]
+const MODELS = ['factory_hall', 'material_rack', 'rack_stock', 'carton_stock', 'pallet', 'truck', 'forklift', ...STEPS.map((step) => step.model)]
 const MODEL_URLS = MODELS.map(modelUrl)
 useGLTF.preload(MODEL_URLS, false)
 type Models = Record<string, THREE.Group>
 
-// The white base the outlook, the rack, the machines and the dock stand on, its top at y = 0.
+// The part of the hall's floor the outlook, the rack, the machines and the dock stand on, its
+// top at y = 0; the camera frames it and the lane runs along it.
 const BASE = { left: CHART_LEFT - 1.2, right: PARK_X - 0.2, back: -2.3, front: LANE_Z + 1.35, depth: 0.42, radius: 1.2 }
 const GROUND = -BASE.depth
 // The machines and the rack stand a size up from the floor tab's, so they read from afar.
@@ -60,8 +61,13 @@ const RACK_SCALE = 1.2
 // Where the plan board hangs: high over the middle of the line, larger than life; on a narrow
 // screen a little smaller and further back to the right, clear of the outlook and the rack.
 type Placement = { at: THREE.Vector3; scale: number; turn: number }
-const BOARD_WIDE = { at: new THREE.Vector3(3.2, 9.8, -3.6), scale: 1.42 }
-const BOARD_NARROW = { at: new THREE.Vector3(6.6, 10.4, -6.4), scale: 0.98 }
+const BOARD_WIDE = { at: new THREE.Vector3(3.2, 9.4, -2.1), scale: 1.3 }
+const BOARD_NARROW = { at: new THREE.Vector3(6.6, 8.6, -1.8), scale: 0.98 }
+// The board turns this much of the way to the camera, so its far end stays clear of the roof.
+const BOARD_TURN = 0.5
+// The store's deck at the back of the building, and where its racks stand on it.
+const DECK_Y = 4.8
+const STORE_Z = -7.9
 const NOW_X = TRACK.left + BOARD.now * TRACK.width
 const rowY = (row: number) => TRACK.top - BOARD.header - (row + 0.5) * ROW
 // The one point every line leaves from: where now meets the board's lower edge.
@@ -141,13 +147,13 @@ const boardMatrix = (board: Placement) =>
 // for that, the part right of them.
 function frameFor(aspect: number, fov: number, low: boolean): Framing {
   const narrow = clamp01((1.45 - aspect) / (1.45 - 0.5))
-  const azimuth = lerp(0.72, 1.06, narrow)
-  const elevation = lerp(0.46, 0.7, narrow)
+  const azimuth = lerp(0.5, 1.06, narrow)
+  const elevation = lerp(0.5, 0.7, narrow)
   const back = new THREE.Vector3(Math.sin(azimuth) * Math.cos(elevation), Math.sin(elevation), Math.cos(azimuth) * Math.cos(elevation))
   const board: Placement = {
     at: BOARD_WIDE.at.clone().lerp(BOARD_NARROW.at, narrow),
     scale: lerp(BOARD_WIDE.scale, BOARD_NARROW.scale, narrow),
-    turn: azimuth,
+    turn: azimuth * BOARD_TURN,
   }
   const boardAt = boardMatrix(board)
   const corners = [
@@ -171,6 +177,12 @@ function frameFor(aspect: number, fov: number, low: boolean): Framing {
           new THREE.Vector3(BASE.left, GROUND, BASE.front),
           new THREE.Vector3(-24.8, 4.2, 2.6),
           new THREE.Vector3(-24.8, 1.2, -1.2),
+          // The building: the glass office and the office block at the left, the roof at the right.
+          new THREE.Vector3(-28.5, 0, 3.6),
+          new THREE.Vector3(-28.5, 5.1, 3.6),
+          new THREE.Vector3(-28, 7.6, -2.4),
+          new THREE.Vector3(-14.2, 13.9, -6.9),
+          new THREE.Vector3(19.5, 13.9, -9.25),
         ]
       : [
           new THREE.Vector3(PARK_X + 2.6, GROUND, LANE_Z + 1.2),
@@ -185,8 +197,8 @@ function frameFor(aspect: number, fov: number, low: boolean): Framing {
   const rect = low
     ? { left: -0.06, right: 0.97, bottom: -0.86, top: 0.88 }
     : narrow < 0.5
-      ? { left: -0.98, right: 0.97, bottom: -0.74, top: 0.95 }
-      : { left: -0.97, right: 0.97, bottom: -0.5, top: 0.95 }
+      ? { left: -0.92, right: 0.94, bottom: -0.74, top: 0.92 }
+      : { left: -0.92, right: 0.92, bottom: -0.4, top: 0.95 }
   const camera = new THREE.PerspectiveCamera(fov, aspect, 1, 400)
   const target = points.reduce((sum, point) => sum.add(point), new THREE.Vector3()).divideScalar(points.length)
   let distance = 60
@@ -254,6 +266,8 @@ function World({ tier, onReady }: { tier: Tier; onReady: () => void }) {
       <fog attach="fog" args={[COLORS.page, framing.distance * 0.9, framing.distance * 1.75]} />
       <Rig framing={framing} />
       <Floor board={framing.board} onBurst={onBurst} />
+      <Hall scene={models.factory_hall} />
+      <Store rack={models.material_rack} steel={models.rack_stock} cartons={models.carton_stock} forklift={models.forklift} pallet={models.pallet} />
       <Rack scene={models.material_rack} stock={models.rack_stock} hovered={hovered === 'rack'} onHover={setHovered} />
       {STEPS.map((step, index) => (
         <Machine key={step.name} scene={models[step.model]} step={index} hovered={hovered === index} onHover={setHovered} />
@@ -311,41 +325,10 @@ function Shadow({ position, size, opacity = 1 }: { position: [number, number, nu
   )
 }
 
-// A rounded rectangle on the floor plan, from x0 to x1 and z0 to z1, as a shape whose y is -z.
-function roundedShape(x0: number, z0: number, x1: number, z1: number, radius: number) {
-  const shape = new THREE.Shape()
-  const [left, right, near, far] = [x0, x1, -z1, -z0]
-  shape.moveTo(left + radius, near)
-  shape.lineTo(right - radius, near)
-  shape.quadraticCurveTo(right, near, right, near + radius)
-  shape.lineTo(right, far - radius)
-  shape.quadraticCurveTo(right, far, right - radius, far)
-  shape.lineTo(left + radius, far)
-  shape.quadraticCurveTo(left, far, left, far - radius)
-  shape.lineTo(left, near + radius)
-  shape.quadraticCurveTo(left, near, left + radius, near)
-  return shape
-}
-
-// The ground, and on it one white base for the whole line: the outlook, the rack, the machines
-// with a pale aisle in front for the lots, and the dock with its gate.
+// The ground the hall stands on, and on the hall's floor a pale aisle in front of the machines
+// for the lots and the dock's gate; a tap anywhere on them sends word down every line.
 function Floor({ board, onBurst }: { board: Placement; onBurst: (time: number) => void }) {
   const clock = useThree((state) => state.clock)
-  const base = useMemo(() => {
-    const bevel = 0.07
-    const made = new THREE.ExtrudeGeometry(roundedShape(BASE.left, BASE.back, BASE.right, BASE.front, BASE.radius), {
-      depth: BASE.depth - bevel,
-      bevelEnabled: true,
-      bevelThickness: bevel,
-      bevelSize: bevel,
-      bevelSegments: 3,
-      curveSegments: 10,
-    })
-    made.rotateX(-Math.PI / 2)
-    made.translate(0, -BASE.depth + bevel, 0)
-    return made
-  }, [])
-  useEffect(() => () => base.dispose(), [base])
   const laneStart = RACK_X - 0.6
   const laneEnd = BASE.right - 0.1
   const burst = () => onBurst(sceneTime(clock))
@@ -355,13 +338,10 @@ function Floor({ board, onBurst }: { board: Placement; onBurst: (time: number) =
         <planeGeometry args={[240, 180]} />
         <meshBasicMaterial color={COLORS.floor} />
       </mesh>
-      <Shadow
-        position={[(BASE.left + BASE.right) / 2, GROUND - 0.07, (BASE.back + BASE.front) / 2 + 0.6]}
-        size={[BASE.right - BASE.left + 5, BASE.front - BASE.back + 4]}
-        opacity={0.45}
-      />
-      <mesh geometry={base} onClick={burst}>
-        <meshStandardMaterial color={COLORS.card} roughness={0.85} />
+      <Shadow position={[-4.4, GROUND - 0.07, -2.4]} size={[54, 18]} opacity={0.4} />
+      <mesh rotation-x={-Math.PI / 2} position={[-4.4, 0.002, -2.8]} onClick={burst}>
+        <planeGeometry args={[47, 12.5]} />
+        <meshBasicMaterial visible={false} />
       </mesh>
       <mesh rotation-x={-Math.PI / 2} position={[(laneStart + laneEnd) / 2, 0.006, LANE_Z]}>
         <planeGeometry args={[laneEnd - laneStart, 1.5]} />
@@ -373,7 +353,7 @@ function Floor({ board, onBurst }: { board: Placement; onBurst: (time: number) =
           <meshBasicMaterial color={COLORS.zoneLine} />
         </mesh>
       ))}
-      {/* The dock's gate, where the truck's rear stops. */}
+      {/* The dock's gate in the hall's wall, where the truck's rear stops. */}
       {[LANE_Z - 1.25, LANE_Z + 1.25].map((z) => (
         <mesh key={z} position={[PARK_X - 0.35, 1.5, z]}>
           <boxGeometry args={[0.22, 3.0, 0.22]} />
@@ -384,8 +364,99 @@ function Floor({ board, onBurst }: { board: Placement; onBurst: (time: number) =
         <boxGeometry args={[0.24, 0.24, 2.72]} />
         <meshStandardMaterial color={COLORS.clay} roughness={0.6} />
       </mesh>
-      {/* The board hangs over the base, and its shadow lies under it. */}
+      {/* The board hangs over the floor, and its shadow lies under it. */}
       <Shadow position={[board.at.x, 0.012, board.at.z + 1.6]} size={[BOARD.width * board.scale, 3.6]} opacity={0.22} />
+    </group>
+  )
+}
+
+// The building around the line and the yard outside it, as the model places them; its glass
+// lets the office's deals and outlook show through.
+function Hall({ scene }: { scene: THREE.Object3D }) {
+  const copy = useMemo(() => {
+    const made = scene.clone(true)
+    made.traverse((object) => {
+      if (object instanceof THREE.Mesh && object.material.name === 'pane') {
+        const pane = (object.material as THREE.MeshStandardMaterial).clone()
+        pane.transparent = true
+        pane.opacity = 0.22
+        pane.depthWrite = false
+        object.material = pane
+      }
+    })
+    return made
+  }, [scene])
+  return <primitive object={copy} />
+}
+
+// Sets the forks and their load at a height, and turns wheels whose axles run across.
+function rise(parts: (THREE.Object3D | null)[], height: number) {
+  for (const part of parts) if (part) part.position.y = height
+}
+function spin(wheels: THREE.Object3D[], angle: number) {
+  for (const wheel of wheels) wheel.rotation.x = angle
+}
+
+// The store on the deck at the back of the hall: racks of steel stock and of cartons, and a
+// forklift going to and fro between them with a load.
+const STORE_STEEL = [-11.0, -7.6]
+const STORE_CARTONS = [9.6, 13.0, 16.4]
+const STORE_RUN = { from: 14.4, to: 17.6, z: -5.2, period: 12 }
+
+function Store({
+  rack,
+  steel,
+  cartons,
+  forklift,
+  pallet,
+}: {
+  rack: THREE.Object3D
+  steel: THREE.Object3D
+  cartons: THREE.Object3D
+  forklift: THREE.Object3D
+  pallet: THREE.Object3D
+}) {
+  const racks = useMemo(
+    () => [...STORE_STEEL.map((x) => ({ x, stock: steel })), ...STORE_CARTONS.map((x) => ({ x, stock: cartons }))].map(({ x, stock }) => ({ x, rack: rack.clone(true), stock: stock.clone(true) })),
+    [rack, steel, cartons],
+  )
+  const truck = useMemo(() => forklift.clone(true), [forklift])
+  const load = useMemo(() => pallet.clone(true), [pallet])
+  const lift = useMemo(() => truck.getObjectByName('lift') ?? null, [truck])
+  const wheels = useMemo(() => ['front_left', 'front_right', 'rear_left', 'rear_right'].map((side) => truck.getObjectByName(`wheel_${side}`)).filter((wheel): wheel is THREE.Object3D => Boolean(wheel)), [truck])
+  const body = useRef<THREE.Group>(null)
+  const carried = useRef<THREE.Group>(null)
+  useFrame(({ clock }) => {
+    if (!body.current) return
+    // Out and back once a period, easing to a stop at each end, where the forks rise and settle.
+    const phase = (sceneTime(clock) / STORE_RUN.period) % 1
+    const leg = phase < 0.5 ? phase * 2 : 2 - phase * 2
+    const u = THREE.MathUtils.smootherstep(THREE.MathUtils.clamp((leg - 0.12) / 0.76, 0, 1), 0, 1)
+    const x = lerp(STORE_RUN.from, STORE_RUN.to, u)
+    body.current.position.x = x
+    const raise = 0.35 * Math.max(0, 1 - Math.abs(leg - (leg < 0.5 ? 0 : 1)) / 0.12)
+    rise([lift, carried.current], raise)
+    spin(wheels, x / 0.22)
+  })
+  return (
+    <group>
+      {racks.map(({ x, rack: copy, stock }) => (
+        <group key={x} position={[x, DECK_Y, STORE_Z]} scale={RACK_SCALE}>
+          <primitive object={copy} />
+          <primitive object={stock} />
+        </group>
+      ))}
+      <group ref={body} position={[STORE_RUN.from, DECK_Y, STORE_RUN.z]} rotation-y={Math.PI / 2}>
+        <primitive object={truck} />
+        <group ref={carried}>
+          <primitive object={load} position={[0, 0.06, 0.55]} />
+          <mesh position={[0, 0.41, 0.55]}>
+            <boxGeometry args={[0.96, 0.6, 0.96]} />
+            <meshStandardMaterial color={COLORS.carton} roughness={0.85} />
+          </mesh>
+        </group>
+        <Shadow position={[0, 0.011, -0.5]} size={[1.9, 3.6]} opacity={0.5} />
+      </group>
     </group>
   )
 }
@@ -472,6 +543,12 @@ function move(role: string, part: MovingPart, into: number, amount: number, work
       break
     case 'bridge':
       node.position.z += 0.19 * Math.sin(turn(1.5)) * amount
+      break
+    case 'table':
+      node.position.x += 0.26 * Math.sin(turn(1.8)) * amount
+      break
+    case 'spindle':
+      node.position.y -= 0.12 * stroke(0.9) * amount
       break
   }
 }
@@ -723,8 +800,9 @@ function Chart() {
       pale.scale.set(1, Math.max(0.001, rest), 1)
     }
   })
+  // Lower than drawn, so the outlook stands inside the glass office.
   return (
-    <group>
+    <group scale-y={0.5}>
       {Array.from({ length: 8 }, (_, index) => (
         <group key={index}>
           <mesh ref={(mesh) => void (solids.current[index] = mesh)}>
