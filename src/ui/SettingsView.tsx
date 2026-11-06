@@ -26,7 +26,7 @@ import { useState } from 'react'
 import { addDays, weekday } from '../engine/dates'
 import { buildScenario } from '../engine/scenario'
 import { SHIFT_STARTS } from '../engine/settings'
-import type { Crew, IsoDate, Settings } from '../engine/types'
+import type { Crew, IsoDate, Routes, Settings } from '../engine/types'
 import type { AppState } from '../state/store'
 import { shortDate, weekdayName } from './format'
 import { NumberField } from './NumberField'
@@ -122,10 +122,20 @@ export function SettingsView({ app }: { app: AppState }) {
     })
   }
 
+  // The people who can set up are kept as they are: on fewer people the plan counts no more
+  // of them than there are, so typing 12 by way of 1 leaves them as they were.
   const setCrewPeople = (name: string, key: 'people' | 'holidayPeople', value: number) => {
     app.updateData({
       ...data,
       crews: data.crews.map((crew) => (crew.name === name ? { ...crew, [key]: clamp(value, 0, 99) } : crew)),
+    })
+  }
+
+  // Kept as a number, all of the crew included, so a sample saved with it is not filled in again.
+  const setSetupPeople = (name: string, value: number) => {
+    app.updateData({
+      ...data,
+      crews: data.crews.map((crew) => (crew.name === name ? { ...crew, setupPeople: clamp(value, 0, crew.people) } : crew)),
     })
   }
 
@@ -457,13 +467,13 @@ export function SettingsView({ app }: { app: AppState }) {
           設備
         </Title>
         <Paper withBorder>
-          <Table.ScrollContainer minWidth={840}>
+          <Table.ScrollContainer minWidth={960}>
             <Table verticalSpacing="xs" horizontalSpacing={6}>
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th className="sticky-col">設備</Table.Th>
                   <Table.Th>担当工程</Table.Th>
-                  <Table.Th w={110}>速さ</Table.Th>
+                  <Table.Th w={260}>速さ</Table.Th>
                   <Table.Th w={110}>段取り</Table.Th>
                   <Table.Th w={120}>1時間の運転費</Table.Th>
                   <Table.Th w={160}>直前の型番</Table.Th>
@@ -476,6 +486,7 @@ export function SettingsView({ app }: { app: AppState }) {
                     <Table.Td className="sticky-col">{equipment.name}</Table.Td>
                     <Table.Td>{equipment.processes.join('・')}</Table.Td>
                     <Table.Td>
+                      {/* What the speed does to the route's minutes per piece, beside the speed and read out with it. */}
                       <NumberField
                         size="xs"
                         suffix=" 倍速"
@@ -488,6 +499,9 @@ export function SettingsView({ app }: { app: AppState }) {
                         value={equipment.speed ?? 1}
                         onCommit={(value) => setSpeed(equipment.id, value)}
                         aria-label={`${equipment.name}の速さ`}
+                        description={speedDescription(data.routes, equipment.processes, equipment.speed ?? 1)}
+                        inputWrapperOrder={['input', 'description']}
+                        styles={SPEED_FIELD_STYLES}
                       />
                     </Table.Td>
                     <Table.Td>
@@ -545,13 +559,14 @@ export function SettingsView({ app }: { app: AppState }) {
             班と出勤
           </Title>
           <Paper withBorder>
-            <Table.ScrollContainer minWidth={416 + days.length * 60}>
+            <Table.ScrollContainer minWidth={526 + days.length * 60}>
               <Table verticalSpacing="xs" horizontalSpacing={6}>
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th className="sticky-col">班</Table.Th>
                     <Table.Th>担当工程</Table.Th>
                     <Table.Th w={96}>{settings.shifts === 1 ? 'いつも' : '1直'}</Table.Th>
+                    <Table.Th w={110}>段取りできる</Table.Th>
                     <Table.Th w={96}>休日</Table.Th>
                     {days.map((date) => (
                       <Table.Th key={date} w={60} ta="center" className={`tabular${isDayOff(date) ? ' is-off' : ''}`}>
@@ -579,6 +594,19 @@ export function SettingsView({ app }: { app: AppState }) {
                           value={crew.people}
                           onCommit={(value) => setCrewPeople(crew.name, 'people', value)}
                           aria-label={settings.shifts === 1 ? `${crew.name}のいつもの人数` : `${crew.name}の1直の人数`}
+                        />
+                      </Table.Td>
+                      <Table.Td>
+                        <NumberField
+                          size="xs"
+                          suffix=" 人"
+                          min={0}
+                          max={crew.people}
+                          value={Math.min(crew.setupPeople ?? crew.people, crew.people)}
+                          onCommit={(value) => setSetupPeople(crew.name, value)}
+                          aria-label={
+                            settings.shifts === 1 ? `${crew.name}の段取りできる人数` : `${crew.name}の1直の段取りできる人数`
+                          }
                         />
                       </Table.Td>
                       <Table.Td>
@@ -639,6 +667,49 @@ export function SettingsView({ app }: { app: AppState }) {
       </Modal>
     </Stack>
   )
+}
+
+const minutesFormat = new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 1 })
+
+// The speed field with its description to the right of it, one line a process, in the text
+// color at the 12px the tables use: figures to read, not a note in the description's gray.
+const SPEED_FIELD_STYLES = {
+  root: { display: 'flex', alignItems: 'center', gap: 'var(--mantine-spacing-sm)' },
+  wrapper: { width: 104, flexShrink: 0, marginBottom: 0 },
+  description: {
+    margin: 0,
+    color: 'var(--mantine-color-text)',
+    fontSize: 'var(--mantine-font-size-xs)',
+    lineHeight: 1.4,
+    whiteSpace: 'nowrap',
+    fontVariantNumeric: 'tabular-nums',
+  },
+} as const
+
+function speedDescription(routes: Routes, processes: string[], speed: number) {
+  const lines = speedEffects(routes, processes, speed)
+  if (lines.length === 0) return undefined
+  return lines.map((line) => (
+    <span key={line} style={{ display: 'block' }}>
+      {line}
+    </span>
+  ))
+}
+
+// For each process of a machine on the routes, the minutes per piece of the route, and at a
+// speed other than 1 what they come to on the machine: 曲げ 12→10分/個. Processes no route
+// takes are left out.
+function speedEffects(routes: Routes, processes: string[], speed: number): string[] {
+  return processes.flatMap((process) => {
+    const minutes = [
+      ...new Set(Object.values(routes).flatMap((route) => route.filter((step) => step.name === process).map((step) => step.minutesPerPiece))),
+    ].sort((a, b) => a - b)
+    if (minutes.length === 0) return []
+    const values = minutes.map((value) =>
+      speed === 1 ? minutesFormat.format(value) : `${minutesFormat.format(value)}→${minutesFormat.format(value / speed)}`,
+    )
+    return [`${process} ${values.join('・')}分/個`]
+  })
 }
 
 // Read out by screen readers instead of the raw 0 to 1 value.

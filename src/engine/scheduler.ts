@@ -7,7 +7,7 @@ import {
   workingSegments,
   type Calendar,
 } from './calendar'
-import { crewOfEquipment, crewPeople } from './crews'
+import { crewOfEquipment, crewPeople, crewSetupPeople } from './crews'
 import { addDays, daysBetween, MINUTES_PER_DAY, minuteToDate, minuteToDateTime, parseClock, weekday } from './dates'
 import { orderDemands, type PriorityClass } from './demand'
 import type { Scenario } from './scenario'
@@ -28,7 +28,8 @@ export type ScheduledOperation = {
   setupMinutes: number
   // Working minutes spent, setup included.
   workMinutes: number
-  // True when it starts later than the equipment allowed because no one of its crew was free.
+  // True when it starts later than the equipment allowed because no one of its crew was free,
+  // or no one who can set it up when it needs a setup.
   waitedForPeople: boolean
   // Minutes from 00:00 of the plan's first day.
   start: number
@@ -64,14 +65,17 @@ export type OrderForecast = {
 }
 
 // People of a crew on one day it comes in, a working day or a day off it works as holiday
-// work, the most machines of the crew running at once, and the machines that ran.
+// work, the most machines of the crew running at once, and the machines that ran. Of the
+// people, setupPeople can set a machine up, and setupPeak machines at most were set up at once.
 export type CrewDay = {
   crew: string
   date: IsoDate
   // A day off the crew comes in on.
   holiday: boolean
   people: number
+  setupPeople: number
   peak: number
+  setupPeak: number
   machines: string[]
 }
 
@@ -123,13 +127,19 @@ type Candidate = {
   waitedForPeople: boolean
 }
 
+// Where a crew runs short: at moment, of anyone to run the machine, or, while it is set up,
+// of anyone who can set it up.
+type Short = { moment: number; setup: boolean }
+
 // Work of each crew already planned, as stretches of working time on working days and on
-// the days off the crew comes in on. A machine called in on its own on a day off brings its
-// own person, so its work is not counted.
+// the days off the crew comes in on, each with the part of it spent on setup, from its start
+// to setupEnd. A machine called in on its own on a day off brings its own person, so its
+// work is not counted.
 class Staffing {
   // Keyed by crew name and day, so each check looks at one day's work only.
-  private readonly work = new Map<string, { equipmentId: string; start: number; end: number }[]>()
+  private readonly work = new Map<string, { equipmentId: string; start: number; setupEnd: number; end: number }[]>()
   private readonly people = new Map<string, number>()
+  private readonly setupPeople = new Map<string, number>()
   private readonly scenario: Scenario
   private readonly planStart: IsoDate
 
@@ -148,52 +158,81 @@ class Staffing {
     return people
   }
 
-  // The first minute of the work at which fewer than spare + 1 people of the
-  // crew would be free, or null when there are enough throughout.
-  firstShortMinute(machine: Machine, start: number, end: number, spare = 0): number | null {
+  setupPeopleOn(crew: Crew, day: number): number {
+    const key = `${crew.name}|${day}`
+    let people = this.setupPeople.get(key)
+    if (people === undefined) {
+      people = crewSetupPeople(this.scenario, crew, addDays(this.planStart, day))
+      this.setupPeople.set(key, people)
+    }
+    return people
+  }
+
+  // The first minute of the work at which fewer than spare + 1 people of the crew would be
+  // free, or, while it is set up, fewer than spare + 1 of those who can set it up; null when
+  // there are enough throughout. Where both fall short at once, the people count.
+  firstShort(machine: Machine, start: number, setupEnd: number, end: number, spare = 0): Short | null {
     if (!machine.crew) return null
     for (const segment of staffedSegments(machine, start, end)) {
       const others = this.othersOn(machine, segment.day)
-      const limit = this.peopleOn(machine.crew, segment.day) - spare
-      const moments = [segment.start, ...others.map((item) => item.start)]
-        .filter((moment) => moment >= segment.start && moment < segment.end)
-        .sort((a, b) => a - b)
-      for (const moment of moments) {
-        if (others.filter((item) => item.start <= moment && moment < item.end).length >= limit) return moment
-      }
+      const starts = others.map((item) => item.start)
+      const short = firstOver(segment.start, segment.end, starts, this.peopleOn(machine.crew, segment.day) - spare, (moment) =>
+        others.filter((item) => item.start <= moment && moment < item.end).length,
+      )
+      const setupTo = Math.min(Math.max(setupEnd, segment.start), segment.end)
+      const setupShort = firstOver(segment.start, setupTo, starts, this.setupPeopleOn(machine.crew, segment.day) - spare, (moment) =>
+        others.filter((item) => item.start <= moment && moment < item.setupEnd).length,
+      )
+      if (short !== null && (setupShort === null || short <= setupShort)) return { moment: short, setup: false }
+      if (setupShort !== null) return { moment: setupShort, setup: true }
     }
     return null
   }
 
-  // When someone of the crew is next free after a short minute: the first end
-  // of the other work running then, or the next day when no one is at work.
-  nextFree(machine: Machine, moment: number): number {
-    const day = Math.floor(moment / MINUTES_PER_DAY)
+  // When the crew is next free after it ran short: the first end of the other work running
+  // then, or of the setup going on then when it was short of people to set up, or the next
+  // day when no one is at work.
+  nextFree(machine: Machine, short: Short): number {
+    const day = Math.floor(short.moment / MINUTES_PER_DAY)
     const ends = this.othersOn(machine, day)
-      .filter((item) => item.start <= moment && moment < item.end)
+      .map((item) => ({ start: item.start, end: short.setup ? item.setupEnd : item.end }))
+      .filter((item) => item.start <= short.moment && short.moment < item.end)
       .map((item) => item.end)
     return ends.length > 0 ? Math.min(...ends) : (day + 1) * MINUTES_PER_DAY
   }
 
-  assign(machine: Machine, start: number, end: number): void {
+  assign(machine: Machine, start: number, setupEnd: number, end: number): void {
     if (!machine.crew) return
     for (const segment of staffedSegments(machine, start, end)) {
       const key = `${machine.crew.name}|${segment.day}`
       this.work.set(key, [
         ...(this.work.get(key) ?? []),
-        { equipmentId: machine.equipment.id, start: segment.start, end: segment.end },
+        {
+          equipmentId: machine.equipment.id,
+          start: segment.start,
+          setupEnd: Math.min(Math.max(setupEnd, segment.start), segment.end),
+          end: segment.end,
+        },
       ])
     }
   }
 
-  // The most machines of the crew running at once on the day, and which ran.
-  dayOf(crew: Crew, day: number): { peak: number; machines: string[] } {
+  // The most machines of the crew running at once on the day, and set up at once, and which ran.
+  dayOf(crew: Crew, day: number): { peak: number; setupPeak: number; machines: string[] } {
     const work = this.work.get(`${crew.name}|${day}`) ?? []
-    const peak = work.reduce(
-      (most, item) => Math.max(most, work.filter((other) => other.start <= item.start && item.start < other.end).length),
-      0,
-    )
-    return { peak, machines: [...new Set(work.map((item) => item.equipmentId))].sort() }
+    const mostAtOnce = (until: (item: (typeof work)[number]) => number) =>
+      work.reduce(
+        (most, item) =>
+          until(item) > item.start
+            ? Math.max(most, work.filter((other) => other.start <= item.start && item.start < until(other)).length)
+            : most,
+        0,
+      )
+    return {
+      peak: mostAtOnce((item) => item.end),
+      setupPeak: mostAtOnce((item) => item.setupEnd),
+      machines: [...new Set(work.map((item) => item.equipmentId))].sort(),
+    }
   }
 
   private othersOn(machine: Machine, day: number) {
@@ -201,6 +240,13 @@ class Staffing {
       (item) => item.equipmentId !== machine.equipment.id,
     )
   }
+}
+
+// The first moment from `from` up to `to` at which at least `limit` others are busy, looking
+// at `from` and at the others' starts, the only moments the count goes up; null when none is.
+function firstOver(from: number, to: number, starts: number[], limit: number, busyAt: (moment: number) => number): number | null {
+  const moments = [from, ...starts].filter((moment) => moment >= from && moment < to).sort((a, b) => a - b)
+  return moments.find((moment) => busyAt(moment) >= limit) ?? null
 }
 
 // The stretches of work the crew's people run: on working days, and on days off the crew
@@ -231,9 +277,11 @@ const WAIT_SHARE = 0.75
 // A running machine needs one person of its crew, so on a working day, and on a day off
 // the crew comes in on, no more machines of a crew run at once than its people at work
 // (a machine called in on its own on a day off has its own person); people move
-// between the crew's machines as work ends. When an operation would take the
-// last free person of its crew, the crew's other machines join the
-// competition, so people go to the work with the higher priority.
+// between the crew's machines as work ends. While a machine is set up, its person must be
+// one who can set it up, so no more machines of a crew are set up at once than those people
+// at work; once set up, anyone of the crew runs it. When an operation would take the
+// last free person of its crew, or the last free one who can set it up, the crew's other
+// machines join the competition, so people go to the work with the higher priority.
 export function schedule(scenario: Scenario, planStart: IsoDate): ScheduleResult {
   const { data, settings } = scenario
   const workEnd = parseClock(workHours(settings).end)
@@ -286,7 +334,7 @@ export function schedule(scenario: Scenario, planStart: IsoDate): ScheduleResult
           ? candidate
           : best,
       )
-      const crewWide = staffing.firstShortMinute(earliest.machine, earliest.start, earliest.end, 1) !== null
+      const crewWide = staffing.firstShort(earliest.machine, earliest.start, earliest.setupEnd, earliest.end, 1) !== null
       const sameGroup = (candidate: Candidate) =>
         candidate.machine === earliest.machine || (crewWide && candidate.machine.crew === earliest.machine.crew)
       const firstStart = Math.min(...candidates.filter(sameGroup).map((candidate) => candidate.start))
@@ -300,7 +348,7 @@ export function schedule(scenario: Scenario, planStart: IsoDate): ScheduleResult
       )
       const chosen = conflict.sort((a, b) => compareCandidates(a, b, settings.dueWeight))[0]
       commit(chosen, planStart, operations)
-      staffing.assign(chosen.machine, chosen.start, chosen.end)
+      staffing.assign(chosen.machine, chosen.start, chosen.setupEnd, chosen.end)
     }
 
     active = active.filter((job) => job.next < job.steps.length)
@@ -328,7 +376,7 @@ function describeCrewDays(scenario: Scenario, planStart: IsoDate, staffing: Staf
       const holiday = !settings.workWeekdays.includes(weekday(date))
       const people = staffing.peopleOn(crew, day)
       if (holiday && people === 0) continue
-      days.push({ crew: crew.name, date, holiday, people, ...staffing.dayOf(crew, day) })
+      days.push({ crew: crew.name, date, holiday, people, setupPeople: staffing.setupPeopleOn(crew, day), ...staffing.dayOf(crew, day) })
     }
   }
   return days
@@ -425,7 +473,8 @@ function buildJobs(scenario: Scenario, planStart: IsoDate, workEnd: number): Job
 }
 
 // Where the operation fits on the machine: the first time both the machine and
-// the job are free and someone of the crew is free from start to end.
+// the job are free and someone of the crew is free from start to end, one who can set it up
+// until setupEnd.
 function evaluate(data: PlantData, staffing: Staffing, job: Job, machine: Machine, transfer: number): Candidate | null {
   const step = job.steps[job.next]
   // Less a hair, so 900 minutes at speed 1.2 is 750 and not 751 by rounding error.
@@ -441,7 +490,7 @@ function evaluate(data: PlantData, staffing: Staffing, job: Job, machine: Machin
     const setupEnd = addWorkingMinutes(machine.calendar, start, setup)
     const end = setupEnd === null ? null : addWorkingMinutes(machine.calendar, setupEnd, minutes)
     if (setupEnd === null || end === null) return null
-    const short = staffing.firstShortMinute(machine, start, end)
+    const short = staffing.firstShort(machine, start, setupEnd, end)
     if (short === null) return { job, machine, setup, minutes, start, setupEnd, end, waitedForPeople: attempt > 0 }
     from = staffing.nextFree(machine, short)
   }

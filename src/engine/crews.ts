@@ -28,3 +28,12 @@ export function crewPeople(scenario: Scenario, crew: Crew, date: IsoDate): numbe
   }
   return people
 }
+
+// People of a crew at work on a day who can set a machine up on their own: the crew's setup
+// people, but no more than are at work. They are the same people on every day; the attendance,
+// headcount changes and the holiday people do not say who comes, so they change the others,
+// and help from another crew runs machines without setting them up.
+export function crewSetupPeople(scenario: Scenario, crew: Crew, date: IsoDate): number {
+  const people = crewPeople(scenario, crew, date)
+  return crew.setupPeople === undefined ? people : Math.min(crew.setupPeople, people)
+}

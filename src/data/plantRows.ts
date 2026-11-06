@@ -58,7 +58,7 @@ export const COLUMNS = {
     lastPart: '直前の型番',
   },
   setupRules: { process: '工程名', fromShape: '前の形状', toShape: '次の形状', minutes: '段取りの分' },
-  crews: { name: '班名', processes: '担当工程', people: '人数', holidayPeople: '休日の人数' },
+  crews: { name: '班名', processes: '担当工程', people: '人数', setupPeople: '段取りできる人数', holidayPeople: '休日の人数' },
   attendance: { crew: '班名', date: '日付', people: '人数' },
   orders: { id: '注番', partNumber: '型番', quantity: '数量', due: '納期', materialOn: '材料入荷日' },
   lots: { id: 'Lot番号', orderId: '注番', quantity: '数量', step: '今の工程番号', arrivedOn: 'その工程に着いた日' },
@@ -181,6 +181,7 @@ export function toPlantRows(data: PlantData): SheetRows {
       [crews.name]: crew.name,
       [crews.processes]: crew.processes.join(PROCESS_SEPARATOR),
       [crews.people]: crew.people,
+      [crews.setupPeople]: crew.setupPeople === undefined ? '' : Math.min(crew.setupPeople, crew.people),
       [crews.holidayPeople]: crew.holidayPeople ?? '',
     })),
     [SHEETS.attendance]: data.attendance.map((entry) => ({
@@ -389,11 +390,16 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
     const name = text(row[c.name])
     const processes = processList(row[c.processes])
     const people = number(row[c.people])
+    // Empty when everyone of the crew can set a machine up.
+    const setupPeople = text(row[c.setupPeople]) === '' ? undefined : number(row[c.setupPeople])
     // Empty when the crew does not come in on days off.
     const holidayPeople = text(row[c.holidayPeople]) === '' ? undefined : number(row[c.holidayPeople])
     if (!name || processes.length === 0) return errors.push(`${where}：班名と担当工程を入れてください`)
     if (crews.some((crew) => crew.name === name)) return errors.push(`${where}：班名「${name}」が重複しています`)
     if (people === null || !Number.isInteger(people) || people < 0) return errors.push(`${where}：人数は0以上の整数にしてください`)
+    if (setupPeople !== undefined && (setupPeople === null || !Number.isInteger(setupPeople) || setupPeople < 0 || setupPeople > people)) {
+      return errors.push(`${where}：段取りできる人数は、人数までの0以上の整数にするか、全員ができるなら空欄にしてください`)
+    }
     if (holidayPeople !== undefined && (holidayPeople === null || !Number.isInteger(holidayPeople) || holidayPeople < 0)) {
       return errors.push(`${where}：休日の人数は0以上の整数にするか、空欄にしてください`)
     }
@@ -404,7 +410,13 @@ export function parsePlantRows(sheets: SheetRows): { data: PlantData | null; err
         return errors.push(`${where}：工程「${process}」を担当する設備がありません`)
       }
     }
-    crews.push({ name, processes, people, ...(holidayPeople ? { holidayPeople } : {}) })
+    crews.push({
+      name,
+      processes,
+      people,
+      ...(holidayPeople ? { holidayPeople } : {}),
+      ...(setupPeople !== undefined ? { setupPeople } : {}),
+    })
   })
   // One person runs a machine, so all of a machine's processes belong to one crew.
   for (const item of equipment) {

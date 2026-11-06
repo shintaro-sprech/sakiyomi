@@ -153,12 +153,20 @@ export function describeSituation(state: PlanState) {
       processes: crew.processes,
       usualPeople: crew.people,
       holidayPeople: crew.holidayPeople ?? 0,
+      usualSetupPeople: Math.min(crew.setupPeople ?? crew.people, crew.people),
       equipment: data.equipment
         .filter((equipment) => equipment.processes.some((process) => crew.processes.includes(process)))
         .map((equipment) => equipment.id),
       days: result.crewDays
         .filter((day) => day.crew === crew.name)
-        .map((day) => ({ date: day.date, holiday: day.holiday, people: day.people, mostRunningAtOnce: day.peak })),
+        .map((day) => ({
+          date: day.date,
+          holiday: day.holiday,
+          people: day.people,
+          setupPeople: day.setupPeople,
+          mostRunningAtOnce: day.peak,
+          mostSettingUpAtOnce: day.setupPeak,
+        })),
     })),
     equipment: data.equipment.map((equipment) => {
       const operations = result.operations.filter((operation) => operation.equipmentId === equipment.id)

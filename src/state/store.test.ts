@@ -32,6 +32,15 @@ describe('withSampleAdditions', () => {
     const changed = { ...saved, data: { ...fresh, crews: fresh.crews.map((crew) => ({ ...crew, holidayPeople: 0 })) } }
     expect(withSampleAdditions(changed).data.crews.map((crew) => crew.holidayPeople)).toEqual([0, 0, 0])
   })
+
+  it('gives the crews of a sample saved before the people who can set up the sample\'s, and keeps them once set', () => {
+    const fresh = createSampleData(today)
+    const saved = { ...savedBeforeShifts('sample'), data: { ...fresh, crews: fresh.crews.map(({ setupPeople: _setup, ...crew }) => crew) } }
+
+    expect(withSampleAdditions(saved).data.crews.map((crew) => crew.setupPeople)).toEqual([1, 1, undefined])
+    const changed = { ...saved, data: { ...fresh, crews: fresh.crews.map((crew) => ({ ...crew, setupPeople: crew.people })) } }
+    expect(withSampleAdditions(changed).data.crews.map((crew) => crew.setupPeople)).toEqual([3, 2, 1])
+  })
 })
 
 describe('withShiftSettings', () => {

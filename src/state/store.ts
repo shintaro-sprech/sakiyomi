@@ -126,9 +126,9 @@ function withProcessLists(saved: SavedState): SavedState {
 }
 
 // A sample saved before the sample had something gets it, each part on its own: the part
-// each machine ran last, material on hand and its lead time, the crews' holiday people. Something the planner cleared,
-// such as a machine's last part set to none, is kept as empty and not filled in again. The
-// steps lots have been through, the customer orders and the distributors' reports are not
+// each machine ran last, material on hand and its lead time, the crews' holiday people and
+// their people who can set up. Something the planner cleared, such as a machine's last part
+// set to none, is kept as empty and not filled in again. The steps lots have been through, the customer orders and the distributors' reports are not
 // edited in the app, so they are made afresh from the saved lots and orders and from today:
 // their dates fit a sample saved on another day. An order with no customer orders saved
 // keeps none.
@@ -151,6 +151,16 @@ export function withSampleAdditions(saved: SavedState): SavedState {
   if (!data.crews.some((crew) => 'holidayPeople' in crew)) {
     const holiday = new Map(sample.crews.map((crew) => [crew.name, crew.holidayPeople]))
     data = { ...data, crews: data.crews.map((crew) => ({ ...crew, holidayPeople: holiday.get(crew.name) })) }
+  }
+  if (!data.crews.some((crew) => 'setupPeople' in crew)) {
+    const setup = new Map(sample.crews.map((crew) => [crew.name, crew.setupPeople]))
+    data = {
+      ...data,
+      crews: data.crews.map((crew) => {
+        const setupPeople = setup.get(crew.name)
+        return setupPeople === undefined ? crew : { ...crew, setupPeople }
+      }),
+    }
   }
   const customerOrders = sampleCustomerOrders(data.orders)
   const served = data.customerOrders && new Set(data.customerOrders.map((entry) => entry.orderId))

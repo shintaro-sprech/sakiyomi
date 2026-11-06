@@ -80,8 +80,10 @@ export function createSampleData(today: IsoDate): PlantData {
     ],
     crews: [
       // On Saturdays and Sundays one person of each crew comes in on the day shift, as holiday work.
-      { name: '板金班', processes: ['切断', '曲げ', '溶接'], people: 3, holidayPeople: 1 },
-      { name: '機械班', processes: ['切削', 'タップ', '熱処理', '研削', '穴あけ'], people: 2, holidayPeople: 1 },
+      // In the machining crews one person on a shift can set the machines up; the others run
+      // them once set up.
+      { name: '板金班', processes: ['切断', '曲げ', '溶接'], people: 3, holidayPeople: 1, setupPeople: 1 },
+      { name: '機械班', processes: ['切削', 'タップ', '熱処理', '研削', '穴あけ'], people: 2, holidayPeople: 1, setupPeople: 1 },
       { name: '仕上げ班', processes: ['検査', '梱包'], people: 1, holidayPeople: 1 },
     ],
     attendance: [{ crew: '機械班', date: workday(2), people: 1 }],

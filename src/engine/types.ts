@@ -66,6 +66,9 @@ export type Crew = {
   people: number
   // People who come in on a day off, as holiday work, on each shift; none when not set.
   holidayPeople?: number
+  // Of the people on a shift, those who can set a machine up on their own; the others run
+  // machines once they are set up. Everyone can when not set.
+  setupPeople?: number
 }
 
 // People of a crew at work on one day, when it is not the usual number.

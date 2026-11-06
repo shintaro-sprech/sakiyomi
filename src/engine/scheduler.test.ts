@@ -418,7 +418,57 @@ describe('schedule', () => {
       ['1', '2026-11-03T08:00'],
       ['2', '2026-11-04T08:00'],
     ])
-    expect(result.crewDays[0]).toEqual({ crew: '加工班', date: TUESDAY, holiday: false, people: 1, peak: 1, machines: ['M1'] })
+    expect(result.crewDays[0]).toEqual({
+      crew: '加工班',
+      date: TUESDAY,
+      holiday: false,
+      people: 1,
+      setupPeople: 1,
+      peak: 1,
+      setupPeak: 0,
+      machines: ['M1'],
+    })
+  })
+
+  it('sets up no more machines of a crew at once than its people who can set up', () => {
+    const result = plan({
+      parts: [part('P', '丸物'), part('R', '丸物'), part('Q', '角物')],
+      routes: { P: oneStep('加工', 60), R: oneStep('仕上げ', 60) },
+      equipment: [
+        { ...machine('M1', '加工', 60), lastPart: 'Q' },
+        { ...machine('M2', '仕上げ', 60), lastPart: 'Q' },
+      ],
+      crews: [{ name: '加工班', processes: ['加工', '仕上げ'], people: 2, setupPeople: 1 }],
+      orders: [order('1', 'P', 2, '2026-11-20'), order('2', 'R', 2, '2026-11-20')],
+    })
+
+    // The one who can set up sets M1 up first, then M2; the other runs M1 meanwhile.
+    expect(
+      result.operations.map((operation) => [operation.equipmentId, operation.startAt, operation.endAt, operation.waitedForPeople]),
+    ).toEqual([
+      ['M1', '2026-11-03T08:00', '2026-11-03T11:00', false],
+      ['M2', '2026-11-03T09:00', '2026-11-03T12:00', true],
+    ])
+    expect(result.crewDays[0]).toMatchObject({ people: 2, setupPeople: 1, peak: 2, setupPeak: 1 })
+  })
+
+  it('counts no more people who can set up than are at work, and help from another crew does not set up', () => {
+    const result = plan({
+      routes: { P: oneStep('加工', 60) },
+      equipment: [machine('M1', '加工')],
+      crews: [{ name: '加工班', processes: ['加工'], people: 3, holidayPeople: 1, setupPeople: 2 }],
+      attendance: [{ crew: '加工班', date: '2026-11-04', people: 1 }],
+      orders: [order('1', 'P', 1, '2026-11-20')],
+      changes: [{ kind: 'headcount', crew: '加工班', from: '2026-11-05', to: '2026-11-05', people: 5 }],
+    })
+    const on = (date: string) => result.crewDays.find((day) => day.date === date)
+
+    expect(['2026-11-03', '2026-11-04', '2026-11-05', '2026-11-07'].map((date) => [on(date)?.people, on(date)?.setupPeople])).toEqual([
+      [3, 2],
+      [1, 1],
+      [5, 2],
+      [1, 1],
+    ])
   })
 
   it('runs a crew of a three-shift plant on the day shift only on its days off, unless set otherwise', () => {

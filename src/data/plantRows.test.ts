@@ -142,6 +142,38 @@ describe('plant rows', () => {
     expect(errors).toContain(`実績の${first + 2}行目：工程番号は、そのLotが通り終えた1〜2にしてください`)
   })
 
+  it('reads the people who can set up, and everyone when the cell is empty', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    const crew = (name: string) => rows[SHEETS.crews].find((row) => row[COLUMNS.crews.name] === name)!
+
+    expect([crew('板金班'), crew('仕上げ班')].map((row) => row[COLUMNS.crews.setupPeople])).toEqual([1, ''])
+    crew('板金班')[COLUMNS.crews.setupPeople] = 0
+    rows[SHEETS.crews] = rows[SHEETS.crews].map(({ [COLUMNS.crews.setupPeople]: setup, ...row }) =>
+      row[COLUMNS.crews.name] === '機械班' ? row : { ...row, [COLUMNS.crews.setupPeople]: setup },
+    )
+    const { data, errors } = parsePlantRows(rows)
+
+    expect(errors).toEqual([])
+    expect(data?.crews.map((item) => item.setupPeople)).toEqual([0, undefined, undefined])
+  })
+
+  it('writes no more people who can set up than the crew has, as the plan counts them', () => {
+    const data = createSampleData('2026-11-03')
+    const crews = data.crews.map((crew) => (crew.name === '板金班' ? { ...crew, people: 1, setupPeople: 3 } : crew))
+    const { data: parsed, errors } = parsePlantRows(toPlantRows({ ...data, crews }))
+
+    expect(errors).toEqual([])
+    expect(parsed?.crews[0]).toMatchObject({ people: 1, setupPeople: 1 })
+  })
+
+  it('refuses more people who can set up than the crew has', () => {
+    const rows = toPlantRows(createSampleData('2026-11-03'))
+    rows[SHEETS.crews][0][COLUMNS.crews.setupPeople] = 4
+    const { errors } = parsePlantRows(rows)
+
+    expect(errors).toContain('班の2行目：段取りできる人数は、人数までの0以上の整数にするか、全員ができるなら空欄にしてください')
+  })
+
   it('refuses a process in two crews', () => {
     const rows = toPlantRows(createSampleData('2026-11-03'))
     rows[SHEETS.crews][1][COLUMNS.crews.processes] = '切削、溶接'

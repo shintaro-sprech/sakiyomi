@@ -196,6 +196,9 @@ describe('executeTool', () => {
     expect(crew?.equipment).toEqual(['MC-1', 'HT-1', 'GRD-1', 'DRL-1'])
     expect(describeSituation(state).equipment.find((item) => item.id === 'MC-1')?.lastPart).toBe('B-200')
     expect(crew?.days.find((day) => day.date === '2026-11-05')?.people).toBe(1)
+    // One of them can set the machines up, on days off too.
+    expect(crew?.usualSetupPeople).toBe(1)
+    expect(crew?.days.filter((day) => day.setupPeople !== 1)).toEqual([])
   })
 
   it('tells Claude how the order is sold and what the distributors hold', () => {
