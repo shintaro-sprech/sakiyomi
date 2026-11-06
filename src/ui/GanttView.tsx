@@ -295,11 +295,8 @@ export function GanttView({ plan, today, highlight, onShowInProgress }: Props) {
         </Group>
       </Group>
 
-      <Paper withBorder className="gantt-scroll" ref={chartRef}>
-        <div
-          className={`gantt-grid${narrow ? ' is-narrow' : ''}`}
-          style={{ width: trackLeft + days * dayWidth, '--gantt-label': `${labelWidth}px` } as CSSProperties}
-        >
+      <Paper withBorder className="gantt-scroll" ref={chartRef} style={{ '--gantt-label': `${labelWidth}px` } as CSSProperties}>
+        <div className={`gantt-grid${narrow ? ' is-narrow' : ''}`} style={{ width: trackLeft + days * dayWidth }}>
           {dates.flatMap((date, index) =>
             shiftLines.map((minute) => (
               <div

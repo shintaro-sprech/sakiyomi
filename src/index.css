@@ -131,6 +131,12 @@ html {
   outline-offset: 2px;
 }
 
+/* A heading moved to after a click or tap is not a control: it takes focus for screen readers
+   without the ring (see quietFocus). */
+[tabindex='-1'][data-quiet-focus]:focus-visible {
+  outline: none;
+}
+
 /* Mantine's placeholder gray is about 2:1; placeholders still need 4.5:1 (WCAG 1.4.3). */
 :root[data-mantine-color-scheme='light'] {
   --mantine-color-placeholder: var(--mantine-color-gray-7);
@@ -807,6 +813,9 @@ tr.is-chosen .mantine-Anchor-root {
 .gantt-scroll {
   overflow: auto;
   max-height: calc(100vh - 236px);
+  /* Keyboard focus scrolls bars clear of the sticky machine column and date header (WCAG 2.4.11). */
+  scroll-padding-left: calc(var(--gantt-label, 180px) + 8px);
+  scroll-padding-top: 72px;
 }
 
 .gantt-row {
@@ -2068,6 +2077,11 @@ tr.is-before > * {
   font-weight: 700;
 }
 
+.factory-resumes {
+  margin-left: 10px;
+  font-weight: 400;
+}
+
 .factory-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
@@ -2337,11 +2351,10 @@ tr.is-before > * {
   background: var(--sk-unstarted);
 }
 
-/* Tabs inside a screen stay on one line and scroll sideways on a phone. */
+/* Tabs inside a screen keep each name whole; on a narrow screen they wrap to a second row, so
+   none hides off the edge. */
 .sub-tabs {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  row-gap: 4px;
 }
 
 .sub-tabs .mantine-Tabs-tab {

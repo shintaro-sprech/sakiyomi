@@ -10,6 +10,7 @@ import {
   NavLink,
   Tabs,
   Text,
+  Tooltip,
   VisuallyHidden,
   useMantineTheme,
 } from '@mantine/core'
@@ -45,6 +46,7 @@ import { GanttView } from './ui/GanttView'
 import { OutlookView } from './ui/OutlookView'
 import { ProgressView } from './ui/ProgressView'
 import { SettingsView } from './ui/SettingsView'
+import { moveFocus } from './ui/quietFocus'
 
 // The floor in 3D loads three.js only when its tab opens.
 const FactoryView = lazy(() => import('./ui/FactoryView'))
@@ -141,12 +143,14 @@ function App({ onLogout }: { onLogout?: () => void }) {
     // Picked from the menu, which closes under the focus: the screen's heading takes it (WCAG 2.4.3).
     if (navOpened) {
       nav.close()
-      requestAnimationFrame(() => {
+      // A screen loaded on first use has no heading yet; look again each frame for a second.
+      let frames = 60
+      const focusHeading = () => {
         const heading = mainRef.current?.querySelector<HTMLElement>('h2')
-        if (!heading) return
-        heading.tabIndex = -1
-        heading.focus()
-      })
+        if (heading) moveFocus(heading)
+        else if ((frames -= 1) > 0) requestAnimationFrame(focusHeading)
+      }
+      requestAnimationFrame(focusHeading)
     }
   }
 
@@ -266,9 +270,11 @@ function App({ onLogout }: { onLogout?: () => void }) {
               <IconMessageCircle size={18} />
             </ActionIcon>
             {onLogout && (
-              <ActionIcon variant="default" size="lg" onClick={onLogout} aria-label="ログアウト">
-                <IconLogout size={18} />
-              </ActionIcon>
+              <Tooltip label="ログアウト" withArrow>
+                <ActionIcon variant="default" size="lg" onClick={onLogout} aria-label="ログアウト">
+                  <IconLogout size={18} />
+                </ActionIcon>
+              </Tooltip>
             )}
           </Group>
         </Group>

@@ -29,7 +29,7 @@ export function DecisionsView({ decisions, onRemove }: Props) {
         判断の記録
       </Title>
       {decisions.length === 0 ? (
-        <Text c="dimmed">まだ記録はありません</Text>
+        <Text c="dimmed">相談の案を「計画に反映する」と、選んだ理由と一緒にここに残ります</Text>
       ) : (
         [...decisions].reverse().map((decision) => (
           <Card key={decision.id} withBorder padding="md" className="decision-card">

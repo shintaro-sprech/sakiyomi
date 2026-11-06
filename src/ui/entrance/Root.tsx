@@ -2,6 +2,7 @@ import { Center, Loader } from '@mantine/core'
 import { useEffect, useRef, useState, type ComponentType } from 'react'
 import { flushSync } from 'react-dom'
 
+import { moveFocus } from '../quietFocus'
 import { Entrance } from './Entrance'
 import { APP_PATH, isAppPath } from './route'
 
@@ -20,8 +21,9 @@ export function Root() {
   const [inApp, setInApp] = useState(() => isAppPath(window.location.pathname))
   const [App, setApp] = useState<ComponentType<{ onLogout?: () => void }> | null>(null)
   const [entering, setEntering] = useState(false)
-  // Set when the button brought the visitor in, so focus moves to the app's heading.
-  const cameIn = useRef(false)
+  // Where focus goes once the entrance or the app shows after a move between them: the app's
+  // heading, or the entrance's button.
+  const focusTo = useRef<'app' | 'entrance' | null>(null)
 
   useEffect(() => {
     let current = true
@@ -36,18 +38,21 @@ export function Root() {
 
   // Back and forward move between the entrance and the app.
   useEffect(() => {
-    const onPop = () => setInApp(isAppPath(window.location.pathname))
+    const onPop = () => {
+      const app = isAppPath(window.location.pathname)
+      focusTo.current = app ? 'app' : 'entrance'
+      setInApp(app)
+    }
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
   useEffect(() => {
-    if (!inApp || !App || !cameIn.current) return
-    cameIn.current = false
-    const heading = document.querySelector<HTMLElement>('#root h1')
-    if (!heading) return
-    heading.tabIndex = -1
-    heading.focus({ preventScroll: true })
+    const target = focusTo.current
+    if (!target || (target === 'app' && (!inApp || !App)) || (target === 'entrance' && inApp)) return
+    focusTo.current = null
+    const element = document.querySelector<HTMLElement>(target === 'app' ? '#root h1' : '#root .entrance-button')
+    if (element) moveFocus(element, { preventScroll: true })
   }, [inApp, App])
 
   const enter = async () => {
@@ -62,7 +67,7 @@ export function Root() {
       return
     }
     window.history.pushState(null, '', APP_PATH)
-    cameIn.current = true
+    focusTo.current = 'app'
     const swap = () =>
       flushSync(() => {
         setApp(() => module.default)
@@ -75,6 +80,7 @@ export function Root() {
   // Logging out of the app goes back to the entrance.
   const leave = () => {
     window.history.pushState(null, '', '/')
+    focusTo.current = 'entrance'
     transition(() => flushSync(() => setInApp(false)))
   }
 

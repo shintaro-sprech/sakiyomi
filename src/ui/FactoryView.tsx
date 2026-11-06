@@ -4,11 +4,13 @@ import { useProgress } from '@react-three/drei'
 import { IconMinus, IconPlus } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { daysBetween, MINUTES_PER_DAY } from '../engine/dates'
+import { addDays, daysBetween, MINUTES_PER_DAY } from '../engine/dates'
 import { floorAt, type MachineState } from '../engine/floor'
 import type { Plan } from '../engine/plan'
 import type { IsoDate } from '../engine/types'
+import { nextShiftStart } from '../engine/workingClock'
 import { factoryLayout } from './factoryLayout'
+import { shortDate, weekdayName } from './format'
 import { preloadModels } from './factoryModels'
 import FactoryScene, { type FactoryColors, type ZoomLimit } from './FactoryScene'
 import { useMinuteClock } from './useMinuteClock'
@@ -27,6 +29,16 @@ const STATE_NAMES: Record<MachineState, string> = {
 }
 
 const pad = (value: number) => String(value).padStart(2, '0')
+
+// "08:00" later the same day, "11/9（月）08:00" on another day.
+function shiftStartLabel(today: IsoDate, minute: number, start: number): string {
+  const day = Math.floor(start / MINUTES_PER_DAY)
+  const within = start - day * MINUTES_PER_DAY
+  const time = `${pad(Math.floor(within / 60))}:${pad(within % 60)}`
+  if (day === Math.floor(minute / MINUTES_PER_DAY)) return time
+  const date = addDays(today, day)
+  return `${shortDate(date)}（${weekdayName(date)}）${time}`
+}
 
 function readColors(_scheme: string): FactoryColors {
   const style = getComputedStyle(document.documentElement)
@@ -106,6 +118,9 @@ export default function FactoryView({ plan, today }: Props) {
   const { data } = plan.scenario
 
   const now = `${pad(clock.getHours())}:${pad(clock.getMinutes())}`
+  // Out of working hours every machine rests; the time says when work starts again.
+  const resumes = useMemo(() => nextShiftStart(plan, minute), [plan, minute])
+  const resumesAt = resumes === null ? null : shiftStartLabel(today, minute, resumes)
   return (
     <div className="factory">
       <Title order={2} size="h4">
@@ -113,7 +128,10 @@ export default function FactoryView({ plan, today }: Props) {
       </Title>
       <div className="factory-stage" ref={stage}>
         <div className="factory-drawing" aria-hidden="true" ref={drawing}>
-          <span className="factory-now tabular">今 {now}</span>
+          <span className="factory-now tabular">
+            今 {now}
+            {resumesAt && <span className="factory-resumes">次の始業 {resumesAt}</span>}
+          </span>
           {loading && <Loader size="sm" className="factory-loading" />}
           <FactoryScene
             labels={drawing}
@@ -154,7 +172,7 @@ export default function FactoryView({ plan, today }: Props) {
         </div>
       </div>
       {/* Material, the crews and finished goods from left to right, in the order of the floor above. */}
-      <Paper withBorder className="factory-list" component="section" aria-label={`現場の今 ${now}`}>
+      <Paper withBorder className="factory-list" component="section" aria-label={resumesAt ? `現場の今 ${now}、次の始業 ${resumesAt}` : `現場の今 ${now}`}>
         <StoreList
           title="材料"
           rows={data.parts.map((part) => [

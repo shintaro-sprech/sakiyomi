@@ -193,7 +193,7 @@ function OutlookPanel({
                   <Group gap={8} wrap="nowrap">
                     <Text fw={700}>{percent(value)}以上</Text>
                     {value === DEAL_DEMAND_DEFAULTS.threshold && (
-                      <Badge variant="outline" color="blue" radius="sm" size="sm" fz="xs">
+                      <Badge variant="light" color="blue" radius="sm" size="sm" fz="xs">
                         計画に渡す
                       </Badge>
                     )}
@@ -541,7 +541,7 @@ function ListPanel({
                     <Table.Td ta="right" className="tabular">
                       <Group gap={6} justify="flex-end" wrap="nowrap">
                         {counted.has(deal.id) && (
-                          <Badge variant="outline" color="blue" radius="sm" size="sm" fz="xs" miw="max-content">
+                          <Badge variant="light" color="blue" radius="sm" size="sm" fz="xs" miw="max-content">
                             計画に渡す
                           </Badge>
                         )}
