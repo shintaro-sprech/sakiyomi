@@ -10,8 +10,9 @@
 	"assets": {
 		"binding": "ASSETS",
 		"not_found_handling": "single-page-application",
-		// The models go out through the Worker, which gzips them (worker/index.ts).
-		"run_worker_first": ["/models/*"]
+		// The API and the models go to the Worker first: the API is answered there, and the models
+		// are gzipped there (worker/index.ts). Every other path is a file or the app's page.
+		"run_worker_first": ["/api/*", "/models/*"]
 	},
 	"observability": {
 		"enabled": true
