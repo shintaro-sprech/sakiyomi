@@ -2,12 +2,18 @@ import { describe, expect, it } from 'vitest'
 
 import {
   ARRIVE,
+  BED,
   boardBars,
   cardAt,
   CARD_EVERY,
   CARD_LIFE,
   columnsAt,
   CYCLE,
+  FORK_AHEAD,
+  FORK_Z,
+  forkliftAt,
+  LANE_Z,
+  LOT_HEIGHT,
   lotAt,
   lotsAround,
   PARK_X,
@@ -16,8 +22,10 @@ import {
   RELEASE,
   stepStart,
   STEPS,
+  TRUCK_LOTS,
   truckAt,
   WARM,
+  wingAt,
   working,
 } from './flow'
 
@@ -94,6 +102,79 @@ describe('the entrance flow', () => {
     // A truck stands at the dock most of the time.
     const parked = frames.filter((time) => truckAt(time)?.offset === 0).length
     expect(parked / frames.length).toBeGreaterThan(0.5)
+  })
+
+  it('packs each lot, stacks them two high and has the forklift carry each stack into the truck, clear of all else', () => {
+    type Box = { x0: number; x1: number; z0: number; z1: number }
+    const box = (x: number, z: number, half = 0.55): Box => ({ x0: x - half, x1: x + half, z0: z - half, z1: z + half })
+    const meet = (a: Box, b: Box, give = 0.02) => a.x0 < b.x1 - give && b.x0 < a.x1 - give && a.z0 < b.z1 - give && b.z0 < a.z1 - give
+    // The packing table as the entrance places it, the walls and the cut-down wall beside the
+    // loading bay, and the forklift's outline from its fork heels: forks ahead, counterweight behind.
+    const table = { x0: 12.43, x1: 14.77, z0: -0.95, z1: 1.14 }
+    const walls = [
+      { x0: 19.0, x1: 19.3, z0: -2.4, z1: 0.75 },
+      { x0: 19.0, x1: 19.3, z0: 3.25, z1: 3.6 },
+    ]
+    const forklift = (x: number) => ({ x0: x - 2.055, x1: x + 1.106, z0: FORK_Z - 0.617, z1: FORK_Z + 0.617 })
+    let last = forkliftAt(frames[0])
+    for (const time of frames) {
+      const forks = forkliftAt(time)
+      expect(Math.abs(forks.x - last.x)).toBeLessThan(0.15)
+      expect(Math.abs(forks.lift - last.lift)).toBeLessThan(0.05)
+      last = forks
+      const body = forklift(forks.x)
+      expect(meet(body, table)).toBe(false)
+      for (const wall of walls) expect(meet(body, wall)).toBe(false)
+      const docked: { lot: number; y: number; at: Box }[] = []
+      for (const lot of lotsAround(time)) {
+        const pose = lotAt(lot, time)
+        if (!pose || pose.x < STEPS[STEPS.length - 1].x + 0.6) continue
+        // Packed by the time it leaves the packing table.
+        expect(pose.packed).toBe(true)
+        const at = box(pose.x, pose.z)
+        for (const wall of walls) expect(meet(at, wall)).toBe(false)
+        // Within the floor's front edge, and inside the truck's walls once in it.
+        expect(at.z1).toBeLessThan(3.35)
+        if (at.x1 > PARK_X) {
+          expect(pose.y).toBeGreaterThanOrEqual(BED - 1e-9)
+          expect(Math.abs(pose.z - LANE_Z)).toBeLessThanOrEqual(1.05 - 0.55 + 1e-9)
+          expect(wingAt(time)).toBeGreaterThan(0)
+        }
+        if (forks.carrying.includes(lot)) {
+          expect(pose.x).toBeCloseTo(forks.x + FORK_AHEAD, 6)
+          expect(pose.z).toBeCloseTo(FORK_Z, 6)
+          const below = Math.min(...forks.carrying.map((other) => lotAt(other, time)?.y ?? Infinity))
+          expect([0, LOT_HEIGHT].some((rise) => Math.abs(pose.y - below - rise) < 1e-9)).toBe(true)
+        } else if (pose.x < PARK_X && !forks.fetching.includes(lot)) {
+          // The forklift only reaches under the stack it has come for.
+          expect(meet(body, at)).toBe(false)
+        }
+        // Lots never meet but one resting a whole lot's height on another.
+        for (const other of docked) {
+          if (meet(other.at, at)) expect(Math.abs(other.y - pose.y)).toBeGreaterThanOrEqual(LOT_HEIGHT - 1e-9)
+        }
+        docked.push({ lot, y: pose.y, at })
+      }
+    }
+  })
+
+  it('raises the wing only while a truck stands at the dock, and sends each away full', () => {
+    const period = TRUCK_LOTS * RELEASE
+    const departures = frames.filter((time) => truckAt(time)?.offset === 0 && truckAt(time + STEP)?.offset !== 0)
+    expect(departures).toHaveLength(Math.round((2 * CYCLE) / period))
+    for (const time of frames) {
+      const truck = truckAt(time)
+      if (wingAt(time) > 0) expect(truck?.offset).toBe(0)
+      // Into the truck only while its wing is up.
+      const forks = forkliftAt(time)
+      if (forks.carrying.length && forks.x > PARK_X - 1.2) expect(wingAt(time)).toBe(1)
+    }
+    // Each truck leaves with its lots on board and out of sight behind the wing.
+    for (const time of departures) {
+      const aboard = lotsAround(time).filter((lot) => (lotAt(lot, time - 2)?.x ?? 0) > PARK_X)
+      expect(aboard.length).toBeGreaterThan(0)
+      for (const lot of aboard) expect(lotAt(lot, time)).toBeNull()
+    }
   })
 
   it('lets each deal drift in, then drop into a month or fade', () => {

@@ -855,7 +855,8 @@ def truck():
     pieces = tidy(generated("truck", turn=180))
     scale = 5.4
     front = [piece for piece in pieces if piece.lo.x > 0.192]
-    rear = [piece for piece in pieces if piece.lo.x > -0.375 and piece.hi.x < -0.14 and piece.hi.z < 0.2]
+    # The rear axle and all round it below the cargo floor; its mudguards would come up through it.
+    rear = [piece for piece in pieces if piece.lo.x > -0.375 and piece.hi.x < -0.14 and piece.hi.z < 0.18]
     drop([piece for piece in pieces if piece not in front and piece not in rear])
     tires = [piece for piece in front + rear if piece.lo.z < 0.005 and piece.size.z > 0.15]
     front_shape = Matrix.Translation((6.86 - scale * max(piece.hi.x for piece in front), 0, 0)) @ Matrix.Scale(scale, 4)
@@ -890,10 +891,16 @@ def truck():
         if id(piece) not in taken:
             m.adopt(piece, "ink", rear_shape)
     m.box("chassis", (5.6, 0.9, 0.22), (2.9, 0, 0.62), "ink", bevel=0.02)
-    # The cargo box, open at the rear, its floor 1.0 m up, with its doors swung round to its sides.
-    m.box("cargo_floor", (4.9, 2.2, 0.08), (2.45, 0, 0.92), "panel", bevel=0.01)
-    for y in (1.075, -1.075):
-        m.box(f"cargo_side_{y}", (4.9, 0.05, 2.15), (2.45, y, 1.0), bevel=0.01)
+    # The cargo box, open at the rear, its floor 1.0 m up.
+    # Its near side is a wing, hinged along the roof's edge (wing, origin on the hinge), that the
+    # entrance raises while the truck is loaded, so the load shows.
+    m.box("cargo_floor", (4.9, 2.2, 0.08), (2.45, 0, 0.92), "trim", bevel=0.01)
+    m.box("cargo_side_far", (4.9, 0.05, 2.15), (2.45, 1.075, 1.0), bevel=0.01)
+    with m.apart("wing", (2.45, -1.1, 3.12)):
+        m.box("wing_panel", (4.9, 0.05, 2.15), (2.45, -1.075, 1.0), bevel=0.01)
+        for index in range(6):
+            m.box(f"wing_rib_{index}", (0.05, 0.02, 2.0), (1.4 + index * 0.6, -1.105, 1.07), "trim", bevel=0)
+        m.box("wing_stripe", (3.7, 0.02, 0.12), (2.95, -1.105 * 1.005, 1.08), "clay", bevel=0)
     m.box("cargo_front", (0.06, 2.2, 2.15), (4.87, 0, 1.0), bevel=0.01)
     m.box("cargo_roof", (4.9, 2.2, 0.06), (2.45, 0, 3.09), bevel=0.02)
     for x in (0.05, 4.85):
@@ -901,11 +908,12 @@ def truck():
             m.box(f"corner_post_{x}_{y}", (0.1, 0.1, 2.23), (x, y, 0.92), "trim", bevel=0.015)
     m.box("rear_header", (0.1, 2.22, 0.14), (0.05, 0, 3.02), "trim", bevel=0.015)
     m.box("rear_sill", (0.1, 2.22, 0.1), (0.05, 0, 0.9), "trim", bevel=0.015)
-    for y in (1.105, -1.105):
-        for index in range(6):
-            m.box(f"rib_{y}_{index}", (0.05, 0.02, 2.0), (1.4 + index * 0.6, y, 1.07), "trim", bevel=0)
-        m.box(f"stripe_{y}", (3.7, 0.02, 0.12), (2.95, y * 1.005, 1.08), "clay", bevel=0)
-        m.box(f"door_{y}", (1.04, 0.05, 2.1), (0.52, y + (0.03 if y > 0 else -0.03), 1.0), "trim", bevel=0.01)
+    for index in range(6):
+        m.box(f"rib_{index}", (0.05, 0.02, 2.0), (1.4 + index * 0.6, 1.105, 1.07), "trim", bevel=0)
+    m.box("stripe", (3.7, 0.02, 0.12), (2.95, 1.105 * 1.005, 1.08), "clay", bevel=0)
+    # The far rear door swung round flat against the side; the near one is away, so the corner
+    # stays a slim post and the loading shows past it.
+    m.box("door", (1.04, 0.05, 2.1), (0.52, 1.135, 1.0), "trim", bevel=0.01)
         m.box(f"side_guard_{y}", (2.4, 0.04, 0.06), (3.45, y * 0.96, 0.5), "ink", bevel=0)
     m.box("rear_bumper", (0.1, 2.0, 0.12), (0.15, 0, 0.45), "ink", bevel=0.01)
     for y in (0.85, -0.85):
@@ -1011,9 +1019,10 @@ def factory_hall():
     # The loading bay in the right wall, the canopy outside it and the rolled-up door.
     block("bay_wall", 19.0, right, store, 0.75, 0, deck)
     block("bay_lintel", 19.0, right, 0.75, 3.25, 3.12, deck)
-    block("bay_jamb", 19.0, right, 3.25, front, 0, deck)
+    # Cut down to the curb in front of the bay, as the hall's front is, so the loading shows.
+    block("bay_jamb", 19.0, right, 3.25, front, 0, 0.35)
     m.cylinder("door_roll", 0.18, 2.5, (19.0, -2.0, 3.36), "panel", axis="Y", segments=12)
-    for z0, z1 in ((0.4, 0.8), (3.2, 3.6)):
+    for z0, z1 in ((0.4, 0.8), (3.45, 3.6)):
         block(f"bay_frame_{z0}", right, right + 0.14, z0, z1, 0, 3.5, "clay")
     block("bay_frame_head", right, right + 0.14, 0.4, 3.6, 3.1, 3.5, "clay")
     block("canopy", right, 22.8, -0.15, 3.95, 5.0, 5.2, "trim", bevel=0.03)

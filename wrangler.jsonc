@@ -8,7 +8,10 @@
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-11-02",
 	"assets": {
-		"not_found_handling": "single-page-application"
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		// The models go out through the Worker, which gzips them (worker/index.ts).
+		"run_worker_first": ["/models/*"]
 	},
 	"observability": {
 		"enabled": true

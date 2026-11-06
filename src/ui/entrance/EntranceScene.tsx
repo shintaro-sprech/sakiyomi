@@ -14,7 +14,11 @@ import {
   CHART_Z,
   columnsAt,
   CYCLE,
+  BED,
   CYCLE_LOTS,
+  DOCK_PLACES,
+  FORK_Z,
+  forkliftAt,
   INBOUND,
   LANE_Z,
   lotAt,
@@ -30,6 +34,7 @@ import {
   STEPS,
   truckAt,
   WARM,
+  wingAt,
   working,
   type Line as LineName,
 } from './flow'
@@ -79,7 +84,10 @@ const DEALS_SHIFT = 3
 // The scene holds still while it fades in over the still picture, which shows this same first
 // moment (entrance.css fades it in over 0.9 s), and then starts to move.
 const HOLD = 0.9
-const sceneTime = (clock: THREE.Clock) => WARM + Math.max(0, clock.elapsedTime - HOLD)
+// The scene's time runs from the moment it starts, read off the time of the frame being drawn
+// (the clock's last tick), as the clock's own count starts over whenever the drawing steps down.
+const started = { at: 0 }
+const sceneTime = (clock: THREE.Clock) => WARM + Math.max(0, (clock.oldTime - started.at) / 1000 - HOLD)
 
 export default function EntranceScene({ eventSource, onReady, onLost }: Props) {
   // Starts at its best and steps down for good if the device cannot keep up.
@@ -253,6 +261,7 @@ function World({ tier, onReady }: { tier: Tier; onReady: () => void }) {
     let second = 0
     // The scene's time starts now, at the moment the still picture shows.
     clock.start()
+    started.at = clock.oldTime
     const first = requestAnimationFrame(() => {
       second = requestAnimationFrame(() => onReady())
     })
@@ -274,7 +283,7 @@ function World({ tier, onReady }: { tier: Tier; onReady: () => void }) {
       ))}
       <Lots pallet={models.pallet} />
       <Truck scene={models.truck} />
-      <Forklift scene={models.forklift} pallet={models.pallet} />
+      <Forklift scene={models.forklift} />
       <Chart />
       <Cards azimuth={framing.azimuth} shift={framing.deals} />
       <Board board={framing.board} hovered={hovered} onHover={setHovered} onBurst={onBurst} />
@@ -353,13 +362,31 @@ function Floor({ board, onBurst }: { board: Placement; onBurst: (time: number) =
           <meshBasicMaterial color={COLORS.zoneLine} />
         </mesh>
       ))}
-      {/* The dock's gate in the hall's wall, where the truck's rear stops. */}
-      {[LANE_Z - 1.25, LANE_Z + 1.25].map((z) => (
+      {/* The dock's gate in the hall's wall, where the truck's rear stops; its near post slim, so
+          the loading shows past it. */}
+      {[
+        { z: LANE_Z - 1.25, size: 0.22 },
+        { z: LANE_Z + 1.25, size: 0.1 },
+      ].map(({ z, size }) => (
         <mesh key={z} position={[PARK_X - 0.35, 1.5, z]}>
-          <boxGeometry args={[0.22, 3.0, 0.22]} />
+          <boxGeometry args={[0.22, 3.0, size]} />
           <meshStandardMaterial color={COLORS.clay} roughness={0.6} />
         </mesh>
       ))}
+      {/* The places at the dock, lined on the floor: the waiting row and the forklift's place. */}
+      {DOCK_PLACES.map(({ x, z }) =>
+        [
+          [0, -0.6, 1.24, 0.04],
+          [0, 0.6, 1.24, 0.04],
+          [-0.6, 0, 0.04, 1.2],
+          [0.6, 0, 0.04, 1.2],
+        ].map(([dx, dz, width, depth]) => (
+          <mesh key={`${x}-${z}-${dx}-${dz}`} rotation-x={-Math.PI / 2} position={[x + dx, 0.009, z + dz]}>
+            <planeGeometry args={[width, depth]} />
+            <meshBasicMaterial color={COLORS.zoneLine} />
+          </mesh>
+        )),
+      )}
       <mesh position={[PARK_X - 0.35, 3.0, LANE_Z]}>
         <boxGeometry args={[0.24, 0.24, 2.72]} />
         <meshStandardMaterial color={COLORS.clay} roughness={0.6} />
@@ -396,6 +423,10 @@ function rise(parts: (THREE.Object3D | null)[], height: number) {
 function spin(wheels: THREE.Object3D[], angle: number) {
   for (const wheel of wheels) wheel.rotation.x = angle
 }
+// The forklift's tires, about this far from axle to floor.
+const FORKLIFT_WHEEL = 0.3
+const forkliftWheels = (forklift: THREE.Object3D) =>
+  ['front_left', 'front_right', 'rear_left', 'rear_right'].map((side) => forklift.getObjectByName(`wheel_${side}`)).filter((wheel): wheel is THREE.Object3D => Boolean(wheel))
 
 // The store on the deck at the back of the hall: racks of steel stock and of cartons, and a
 // forklift going to and fro between them with a load.
@@ -423,7 +454,7 @@ function Store({
   const truck = useMemo(() => forklift.clone(true), [forklift])
   const load = useMemo(() => pallet.clone(true), [pallet])
   const lift = useMemo(() => truck.getObjectByName('lift') ?? null, [truck])
-  const wheels = useMemo(() => ['front_left', 'front_right', 'rear_left', 'rear_right'].map((side) => truck.getObjectByName(`wheel_${side}`)).filter((wheel): wheel is THREE.Object3D => Boolean(wheel)), [truck])
+  const wheels = useMemo(() => forkliftWheels(truck), [truck])
   const body = useRef<THREE.Group>(null)
   const carried = useRef<THREE.Group>(null)
   useFrame(({ clock }) => {
@@ -436,7 +467,7 @@ function Store({
     body.current.position.x = x
     const raise = 0.35 * Math.max(0, 1 - Math.abs(leg - (leg < 0.5 ? 0 : 1)) / 0.12)
     rise([lift, carried.current], raise)
-    spin(wheels, x / 0.22)
+    spin(wheels, x / FORKLIFT_WHEEL)
   })
   return (
     <group>
@@ -652,7 +683,11 @@ function Rack({
   )
 }
 
-const POOL = 18
+const POOL = 20
+// How far apart the cartons of a lot turn to shipping cartons, and when the tape goes on after
+// the last one.
+const PACK_STEP = 0.45
+const TAPE_AT = 0.2
 const matrix = new THREE.Matrix4()
 const spot = new THREE.Vector3()
 const turned = new THREE.Quaternion()
@@ -669,25 +704,28 @@ function place(object: THREE.Object3D, at: { x: number; y: number; z: number } |
 }
 
 // The lots on pallets: plate from the rack until the first machine has worked on them, then
-// cartons in the color their order has on the Gantt chart.
+// cartons in the color their order has on the Gantt chart, and once packed, shipping cartons
+// taped shut.
 function Lots({ pallet }: { pallet: THREE.Object3D }) {
   const pallets = useMemo(() => Array.from({ length: POOL }, () => pallet.clone(true)), [pallet])
   const cartons = useRef<THREE.InstancedMesh>(null)
+  const tapes = useRef<THREE.InstancedMesh>(null)
   const plates = useRef<THREE.InstancedMesh>(null)
   const shadows = useRef<THREE.InstancedMesh>(null)
   const shadow = useTexture(drawShadow)
-  const tones = useMemo(() => ({ ok: new THREE.Color(COLORS.accent), tight: new THREE.Color(COLORS.tight) }), [])
+  const tones = useMemo(() => ({ ok: new THREE.Color(COLORS.accent), tight: new THREE.Color(COLORS.tight), packed: new THREE.Color(COLORS.carton) }), [])
   useFrame(({ clock }) => {
-    if (!cartons.current || !plates.current || !shadows.current) return
+    if (!cartons.current || !tapes.current || !plates.current || !shadows.current) return
     const time = sceneTime(clock)
     let used = 0
     let boxes = 0
+    let taped = 0
     let sheets = 0
     for (const lot of lotsAround(time)) {
       const pose = lotAt(lot, time)
       if (!pose || used >= POOL) continue
       place(pallets[used], pose, pose.scale)
-      shadows.current.setMatrixAt(used, matrix.compose(spot.set(pose.x, 0.013, pose.z), flat, sized.set(1.7 * pose.scale, 1.7 * pose.scale, 1)))
+      shadows.current.setMatrixAt(used, matrix.compose(spot.set(pose.x, (pose.x > PARK_X ? BED : 0) + 0.013, pose.z), flat, sized.set(1.7 * pose.scale, 1.7 * pose.scale, 1)))
       used++
       const look = lotLook(lot)
       if (!pose.worked) {
@@ -697,18 +735,29 @@ function Lots({ pallet }: { pallet: THREE.Object3D }) {
       }
       for (let carton = 0; carton < look.cartons; carton++) {
         const x = ((carton % 2) * 0.52 - 0.26) * pose.scale
-        const z = (Math.floor(carton / 2) * 0.52 - 0.26) * pose.scale
-        matrix.compose(spot.set(pose.x + x, pose.y + 0.37 * pose.scale, pose.z + z), turned.identity(), sized.setScalar(Math.max(0.001, pose.scale)))
+        // The front row first, so a lot of two or three shows its cartons under the next one.
+        const z = (0.26 - Math.floor(carton / 2) * 0.52) * pose.scale
+        // Packed one carton after another, each swelling a little as it is closed, the last one
+        // as the packing table finishes; then the tape goes on.
+        const since = pose.packing + (look.cartons - 1 - carton) * PACK_STEP
+        const swell = 1 + 0.12 * Math.sin(Math.PI * clamp01(since / 0.35))
+        const size = Math.max(0.001, pose.scale * (since >= 0 ? swell : 1))
+        matrix.compose(spot.set(pose.x + x, pose.y + 0.37 * pose.scale, pose.z + z), turned.identity(), sized.setScalar(size))
         cartons.current.setMatrixAt(boxes, matrix)
-        cartons.current.setColorAt(boxes, tones[look.tone])
+        cartons.current.setColorAt(boxes, tones[since >= 0 ? 'packed' : look.tone])
         boxes++
+        if (pose.packing >= TAPE_AT) {
+          matrix.compose(spot.set(pose.x + x, pose.y + 0.583 * pose.scale, pose.z + z), turned.identity(), sized.setScalar(Math.max(0.001, pose.scale)))
+          tapes.current.setMatrixAt(taped++, matrix)
+        }
       }
     }
     for (let index = used; index < POOL; index++) place(pallets[index], null, 0)
     cartons.current.count = boxes
+    tapes.current.count = taped
     plates.current.count = sheets
     shadows.current.count = used
-    for (const mesh of [cartons.current, plates.current, shadows.current]) mesh.instanceMatrix.needsUpdate = true
+    for (const mesh of [cartons.current, tapes.current, plates.current, shadows.current]) mesh.instanceMatrix.needsUpdate = true
     if (cartons.current.instanceColor) cartons.current.instanceColor.needsUpdate = true
   })
   return (
@@ -719,6 +768,10 @@ function Lots({ pallet }: { pallet: THREE.Object3D }) {
       <instancedMesh ref={cartons} args={[undefined, undefined, POOL * 4]} frustumCulled={false}>
         <boxGeometry args={[0.48, 0.42, 0.48]} />
         <meshStandardMaterial roughness={0.7} />
+      </instancedMesh>
+      <instancedMesh ref={tapes} args={[undefined, undefined, POOL * 4]} frustumCulled={false}>
+        <boxGeometry args={[0.1, 0.008, 0.49]} />
+        <meshStandardMaterial color={COLORS.clay} roughness={0.7} />
       </instancedMesh>
       <instancedMesh ref={plates} args={[undefined, undefined, POOL]} frustumCulled={false}>
         <boxGeometry args={[0.98, 0.26, 0.98]} />
@@ -737,20 +790,26 @@ function Lots({ pallet }: { pallet: THREE.Object3D }) {
 // x = 0 and its front toward +x.
 const WHEEL = 0.45
 
+// How far the wing swings up, past level, when raised.
+const WING_UP = 1.95
+
 function Truck({ scene }: { scene: THREE.Object3D }) {
   const copy = useMemo(() => scene.clone(true), [scene])
   const wheels = useMemo(
     () => [0, 1, 2, 3].map((index) => copy.getObjectByName(`wheel_${index}`)).filter((wheel): wheel is THREE.Object3D => Boolean(wheel)),
     [copy],
   )
+  const wing = useMemo(() => copy.getObjectByName('wing') ?? null, [copy])
   const body = useRef<THREE.Group>(null)
   useFrame(({ clock }) => {
     if (!body.current) return
-    const truck = truckAt(sceneTime(clock))
+    const time = sceneTime(clock)
+    const truck = truckAt(time)
     body.current.visible = truck !== null
     if (!truck) return
     body.current.position.x = PARK_X + truck.offset
     roll(wheels, -truck.offset / WHEEL)
+    swing(wing, -WING_UP * wingAt(time))
   })
   return (
     <group ref={body} position={[PARK_X, GROUND - 0.08, LANE_Z]}>
@@ -760,19 +819,31 @@ function Truck({ scene }: { scene: THREE.Object3D }) {
   )
 }
 
+function swing(part: THREE.Object3D | null, angle: number) {
+  if (part) part.rotation.x = angle
+}
+
 function roll(wheels: THREE.Object3D[], angle: number) {
   for (const wheel of wheels) wheel.rotation.z = angle
 }
 
-// A forklift waiting behind the dock's places with an empty pallet, ready to load.
-function Forklift({ scene, pallet }: { scene: THREE.Object3D; pallet: THREE.Object3D }) {
+// The forklift at the dock, facing the truck: it takes each packed pallet from the place in
+// front of it into the truck and backs out again. The pallet itself is drawn with the lots.
+function Forklift({ scene }: { scene: THREE.Object3D }) {
   const copy = useMemo(() => scene.clone(true), [scene])
-  const load = useMemo(() => pallet.clone(true), [pallet])
+  const lift = useMemo(() => copy.getObjectByName('lift') ?? null, [copy])
+  const wheels = useMemo(() => forkliftWheels(copy), [copy])
+  const body = useRef<THREE.Group>(null)
+  useFrame(({ clock }) => {
+    if (!body.current) return
+    const forks = forkliftAt(sceneTime(clock))
+    body.current.position.x = forks.x
+    rise([lift], forks.lift)
+    spin(wheels, forks.x / FORKLIFT_WHEEL)
+  })
   return (
-    <group position={[17.2, 0, -0.75]} rotation-y={Math.PI / 2}>
+    <group ref={body} position={[0, 0, FORK_Z]} rotation-y={Math.PI / 2}>
       <primitive object={copy} />
-      {/* The pallet stands on the forks, its middle 0.55 m ahead of where they meet the mast. */}
-      <primitive object={load} position={[0, 0.06, 0.55]} />
       <Shadow position={[0, 0.011, -0.5]} size={[1.9, 3.6]} opacity={0.5} />
     </group>
   )

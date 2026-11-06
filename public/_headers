@@ -1,0 +1,4 @@
+# The built scripts and styles carry a hash of their content in their names, so a browser can
+# keep them for good; everything else is checked again on each visit.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

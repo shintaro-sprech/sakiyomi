@@ -94,7 +94,7 @@ try {
       if (Date.now() - start > 30000) throw new Error('the scene did not draw')
       await sleep(50)
     }
-    const { data } = await send('Page.captureScreenshot', { format: 'webp', quality: 82 })
+    const { data } = await send('Page.captureScreenshot', { format: 'webp', quality: 70 })
     writeFileSync(join(root, 'public', 'entrance', shot.file), Buffer.from(data, 'base64'))
     console.log(`public/entrance/${shot.file}`)
   }
