@@ -25,11 +25,14 @@ describe('summarizeProgress', () => {
   })
 
   it('treats quantity not yet released as a lot as unstarted', () => {
-    const summary = summarizeOrder('1034')
+    // Order 1034 as if its last lot had not been released yet.
+    const order = data.orders.find((candidate) => candidate.id === '1034')!
+    const lots = data.lots.filter((lot) => lot.id !== 'L1034-4')
+    const summary = summarizeProgress([order], lots, data.routes[order.partNumber])
 
-    expect(summary.unstarted).toBe(36)
-    expect(summary.wip).toBe(54)
-    expect(summary.steps.map((step) => step.done)).toEqual([54, 36, 0])
+    expect(summary.unstarted).toBe(18)
+    expect(summary.wip).toBe(72)
+    expect(summary.steps.map((step) => step.done)).toEqual([72, 36, 0])
   })
 
   it('counts lots past the last step as finished', () => {
@@ -109,7 +112,7 @@ describe('summarizeWip', () => {
     const unreleased = columns[0].cells
 
     expect(unreleased['A-stockout'].unreleased).toEqual([{ orderId: '1045', quantity: 90 }])
-    expect(unreleased.B.quantity).toBe(81)
+    expect(unreleased.B.quantity).toBe(45)
     expect(unreleased.C.quantity).toBe(120)
   })
 

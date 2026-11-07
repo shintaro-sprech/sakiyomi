@@ -104,6 +104,8 @@ export function createSampleData(today: IsoDate): PlantData {
       { id: 'L1030-2', orderId: '1030', quantity: 18, stepIndex: 5, arrivedOn: day(-1) },
       { id: 'L1034-1', orderId: '1034', quantity: 18, stepIndex: 1, arrivedOn: day(-2) },
       { id: 'L1034-2', orderId: '1034', quantity: 36, stepIndex: 2, arrivedOn: day(0) },
+      { id: 'L1034-3', orderId: '1034', quantity: 18, stepIndex: 1, arrivedOn: day(-1) },
+      { id: 'L1034-4', orderId: '1034', quantity: 18, stepIndex: 1, arrivedOn: day(-1) },
     ],
   }
   return {
