@@ -2044,26 +2044,38 @@ tr.is-before > * {
   }
 }
 
-/* The factory floor in 3D, with the same in words under it, in the floor's order. */
+/* The factory floor in 3D, as tall as the page leaves under the header; the same in words is
+   for screen readers only. */
 .factory {
   display: flex;
   flex-direction: column;
   gap: var(--mantine-spacing-md);
+  height: calc(100dvh - var(--app-shell-header-offset, 0rem) - 2 * var(--app-shell-padding, 0rem));
+  container-type: inline-size;
 }
 
+/* No taller than the floor needs at its width, so a tall window does not leave bands above and
+   below it. */
 .factory-stage {
   position: relative;
-  /* As wide as the floor is long; narrower screens show it a little taller. */
-  aspect-ratio: 2.1 / 1;
-  max-height: 74vh;
-  min-height: 220px;
+  flex: 1 1 0;
+  min-height: 240px;
+  max-height: 80cqw;
   border: 1px solid var(--sk-border);
   border-radius: var(--mantine-radius-md);
   background: var(--sk-surface);
   overflow: hidden;
 }
 
-/* The canvas and the names over it fill the stage; the zoom control sits in its corner. */
+/* A keyboard chooses on the floor with the arrow keys once the stage has focus. */
+.factory-stage:focus-visible {
+  outline: 2px solid var(--sk-focus);
+  outline-offset: 2px;
+}
+
+/* The floor fills the stage: the canvas and the names over it, with the zoom control in its
+   corner. */
+.factory-view,
 .factory-drawing {
   position: absolute;
   inset: 0;
@@ -2091,9 +2103,26 @@ tr.is-before > * {
   translate: -50% -50%;
 }
 
+/* On a phone the floor takes the shape it has when seen from its corner, and the chosen machine's
+   card lies under it, inside the stage, where it hides none of the floor (FactoryView). */
 @media (max-width: 48em) {
+  .factory {
+    height: auto;
+  }
+
   .factory-stage {
-    aspect-ratio: 3 / 2;
+    flex: none;
+    max-height: none;
+  }
+
+  /* The full width of the stage even where the height is capped: a short, narrow window (or a
+     page zoomed in) shows a wider view rather than a band of empty stage beside it. */
+  .factory-view {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    max-height: calc(100dvh - var(--app-shell-header-offset, 0rem) - 6rem);
   }
 }
 
@@ -2115,60 +2144,6 @@ tr.is-before > * {
   font-weight: 400;
 }
 
-.factory-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
-  gap: var(--mantine-spacing-md) var(--mantine-spacing-lg);
-  padding: var(--mantine-spacing-md);
-}
-
-.factory-list-head {
-  margin-bottom: 4px;
-}
-
-.factory-machines {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.factory-machine {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 8px;
-  row-gap: 2px;
-  width: 100%;
-  padding: 6px 8px;
-  border-radius: var(--mantine-radius-sm);
-  font-size: var(--mantine-font-size-sm);
-}
-
-.factory-machine:hover {
-  background: var(--sk-muted-surface);
-}
-
-.factory-machine[data-selected] {
-  background: var(--sk-muted-surface);
-  box-shadow: inset 3px 0 0 var(--sk-focus);
-}
-
-.factory-machine-state {
-  color: var(--sk-text-dimmed);
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.factory-machine-lot,
-.factory-machine-wait {
-  grid-column: 2 / -1;
-  font-size: var(--mantine-font-size-xs);
-}
-
-.factory-machine-wait {
-  color: var(--sk-text-dimmed);
-}
-
 .factory-dot {
   width: 10px;
   height: 10px;
@@ -2180,11 +2155,14 @@ tr.is-before > * {
   background: var(--sk-state-running);
 }
 
+/* Each state has its own shape as well as its color: setting up is half full, stopped square. */
 .factory-dot.state-setup {
-  background: var(--sk-state-setup);
+  background: linear-gradient(90deg, var(--sk-state-setup) 50%, transparent 50%);
+  box-shadow: inset 0 0 0 2px var(--sk-state-setup);
 }
 
 .factory-dot.state-stopped {
+  border-radius: 1px;
   background: var(--sk-state-stopped);
 }
 
@@ -2196,33 +2174,10 @@ tr.is-before > * {
 
 .factory-label .factory-dot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   margin-right: 5px;
   vertical-align: 1px;
-}
-
-.factory-store {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px 12px;
-  margin: 0;
-  padding: 0 8px;
-  font-size: 13px;
-}
-
-/* No stock of a part: red and bold, not by color alone. */
-.factory-store .is-empty {
-  font-weight: 700;
-}
-
-.factory-store > div {
-  display: contents;
-}
-
-.factory-store dd {
-  margin: 0;
-  text-align: right;
 }
 
 .tone-late {
@@ -2263,11 +2218,26 @@ tr.is-before > * {
   font-weight: 700;
 }
 
-.factory-queue {
-  font-variant-numeric: tabular-nums;
+/* A machine's name stands on the point just over it, or wherever the layout of the names
+   (FactoryScene's NameLayout) moves it to keep it off the loads and the tags. drei sets the
+   element's transform itself, so the shift is the translate property. */
+.factory-label {
+  translate: -50% -100%;
 }
 
-.factory-label.is-selected {
+/* A name or a tag the chosen machine's card would cut across, a name with no clear place, and a
+   tag under the chosen machine's name. */
+.factory-label.is-covered,
+.factory-tag.is-covered,
+.factory-label[data-crowded],
+.factory-tag[data-crowded] {
+  visibility: hidden;
+}
+
+/* What is chosen on the floor has the focus color for its edge: a name, a tag, a card. */
+.factory-label.is-selected,
+.factory-tag.is-selected,
+.factory-card {
   border-color: var(--sk-focus);
   box-shadow: 0 0 0 1px var(--sk-focus);
 }
@@ -2276,8 +2246,112 @@ tr.is-before > * {
   font-variant-numeric: tabular-nums;
 }
 
-.factory-label-more {
+/* The chosen machine's card: a grid whose columns line the lots up (Lot, part, pieces, step).
+   Unlike the names, it takes the pointer, so a press on it keeps the machine chosen. */
+.factory-card {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  justify-content: start;
+  column-gap: 10px;
+  row-gap: 2px;
+  padding: 7px 10px 8px;
+  border: 1px solid var(--sk-focus);
+  border-radius: 4px;
+  background: var(--mantine-color-body);
+  color: var(--mantine-color-text);
+  font-size: 12px;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: default;
+}
+
+.factory-card-head,
+.factory-card-progress,
+.factory-card-queue,
+.factory-card-line {
+  grid-column: 1 / -1;
+}
+
+.factory-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 1px;
+}
+
+.factory-card-head .factory-dot {
+  flex: none;
+}
+
+.factory-card-name {
+  margin-right: 4px;
+  font-weight: 700;
+}
+
+/* Each lot starts a row of the grid, with or without its step at the end. */
+.factory-card-lot {
+  display: contents;
+}
+
+.factory-card-lot > :first-child {
+  grid-column: 1;
+}
+
+.factory-card-pieces {
+  text-align: right;
+}
+
+/* How far the step on the machine has gone, in the color of the machine's state. The track's edge
+   is 3:1 or more on the card in both schemes, so the whole length of the step shows (WCAG 1.4.11). */
+.factory-card-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.factory-card-bar {
+  flex: 1;
+  min-width: 64px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--sk-muted-surface);
+  box-shadow: inset 0 0 0 1px var(--mantine-color-gray-6);
+  overflow: hidden;
+}
+
+.factory-card-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--sk-state-idle);
+}
+
+.factory-card-bar.state-running > span {
+  background: var(--sk-state-running);
+}
+
+.factory-card-bar.state-setup > span {
+  background: var(--sk-state-setup);
+}
+
+.factory-card-queue.is-after {
+  margin-top: 4px;
+  padding-top: 5px;
+  border-top: 1px solid var(--sk-border);
+}
+
+.factory-card-more {
   color: var(--sk-text-dimmed);
+}
+
+/* Under the floor on a phone the card is a strip of the stage, set off by a line. */
+.factory-card.is-docked {
+  border: 0;
+  border-top: 1px solid var(--sk-border);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 8px 12px 10px;
 }
 
 /* Deals: a salesperson's line under a part, and bars for the win model's scores. */

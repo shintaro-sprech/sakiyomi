@@ -36,8 +36,9 @@ export type FloorLot = {
 export type FloorMachine = {
   equipmentId: string
   state: MachineState
-  // The lot on the machine and when its step ends, also while the machine is off between shifts.
-  current: (FloorLot & { endAt: string }) | null
+  // The lot on the machine and when its step starts (its setup first) and ends, also while the
+  // machine is off between shifts.
+  current: (FloorLot & { startAt: string; endAt: string }) | null
   // Lots that have reached the step this machine runs next for them, in the order it takes them.
   waiting: FloorLot[]
 }
@@ -127,7 +128,7 @@ export function floorAt(plan: Plan, minute: number): FloorMachine[] {
     return {
       equipmentId: equipment.id,
       state,
-      current: running && { ...lot(running), endAt: running.endAt },
+      current: running && { ...lot(running), startAt: running.startAt, endAt: running.endAt },
       waiting: [...(waiting.get(equipment.id) ?? []).sort((a, b) => a.start - b.start).map(lot), ...(stuckAt.get(equipment.id) ?? [])],
     }
   })

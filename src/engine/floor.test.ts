@@ -47,16 +47,23 @@ describe('floorAt', () => {
   })
 
   it('puts the lot on the machine through its setup and its run', () => {
-    expect(floor('08:10')).toMatchObject({ state: 'setup', current: { lotId: 'L1', quantity: 2, endAt: '2026-11-03T10:30' } })
+    expect(floor('08:10')).toMatchObject({
+      state: 'setup',
+      current: { lotId: 'L1', quantity: 2, startAt: '2026-11-03T08:00', endAt: '2026-11-03T10:30' },
+    })
     const running = floor('09:00')
 
-    expect(running).toMatchObject({ state: 'running', current: { lotId: 'L1' } })
+    // The step keeps the start of its setup while it runs.
+    expect(running).toMatchObject({ state: 'running', current: { lotId: 'L1', startAt: '2026-11-03T08:00' } })
     expect(running.waiting.map((lot) => lot.lotId)).toEqual(['L2'])
   })
 
   it('leaves pieces not yet released off the floor until their first step starts', () => {
     expect(floor('10:00').waiting.map((lot) => lot.lotId)).toEqual(['L2'])
-    expect(floor('11:00')).toMatchObject({ current: { lotId: 'L3-1', planned: true }, waiting: [{ lotId: 'L2' }] })
+    expect(floor('11:00')).toMatchObject({
+      current: { lotId: 'L3-1', planned: true, startAt: '2026-11-03T10:30', endAt: '2026-11-03T12:30' },
+      waiting: [{ lotId: 'L2' }],
+    })
   })
 
   it('shows a free machine once its work is done', () => {
