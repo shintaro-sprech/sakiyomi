@@ -4,7 +4,7 @@ import { createSampleData } from '../../sample-data/sample'
 import type { PlanState } from '../engine/plan'
 import { createSampleSettings } from '../engine/settings'
 import { TOOL_NAMES } from './toolSchemas'
-import { changesToApply, describeSituation, executeTool } from './tools'
+import { changesToApply, describeSituation, effectOf, executeTool } from './tools'
 
 const today = '2026-11-03'
 const state: PlanState = { data: createSampleData(today), settings: createSampleSettings(), adopted: [], today }
@@ -237,6 +237,37 @@ describe('executeTool', () => {
     expect(changesToApply(option, [{ kind: 'materialDelay', orderId: '1045', days: 2 }]).changes).toEqual([
       { kind: 'expedite', orderId: '1045' },
     ])
+  })
+
+  it('counts an event an earlier decision already put in only once on the cards', () => {
+    const delay = { kind: 'materialDelay', orderId: '1045', days: 2 }
+    const decided: PlanState = { ...state, adopted: [{ kind: 'materialDelay', orderId: '1045', days: 2 }] }
+    const option = { title: '優先する', changes: [{ kind: 'expedite', orderId: '1045' }], reason: 'r', tradeoff: 't' }
+    const again = executeTool(TOOL_NAMES.presentOptions, { event: [delay], options: [option] }, decided)
+    const withoutEvent = executeTool(TOOL_NAMES.presentOptions, { event: [], options: [option] }, decided)
+
+    expect(again.isError).toBe(false)
+    expect(again.event?.labels).toEqual(['注番1045の材料が2日遅れる'])
+    expect(again.event?.effect).toEqual(effectOf(decided, []))
+    expect(again.options?.[0].effect).toEqual(withoutEvent.options?.[0].effect)
+  })
+
+  it('counts only the part of the event not yet in the plan, as adopting would add it', () => {
+    const decided: PlanState = { ...state, adopted: [{ kind: 'materialDelay', orderId: '1045', days: 2 }] }
+    const down = { kind: 'equipmentDown', equipmentId: 'MC-1', from: '2026-11-04', to: '2026-11-05' }
+    const outcome = executeTool(
+      TOOL_NAMES.presentOptions,
+      {
+        event: [{ kind: 'materialDelay', orderId: '1045', days: 2 }, down],
+        options: [{ title: '優先する', changes: [{ kind: 'expedite', orderId: '1045' }], reason: 'r', tradeoff: 't' }],
+      },
+      decided,
+    )
+    const toApply = changesToApply(outcome.options![0], decided.adopted).changes
+
+    expect(toApply).toEqual([down, { kind: 'expedite', orderId: '1045' }])
+    expect(outcome.event?.effect).toEqual(effectOf(decided, [toApply[0]]))
+    expect(outcome.options?.[0].effect).toEqual(effectOf(decided, toApply))
   })
 
   it('returns problems as tool errors so Claude can correct itself', () => {

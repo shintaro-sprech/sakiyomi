@@ -29,14 +29,16 @@ export type Effect = {
 }
 
 // What the planner reported (a delay, a breakdown) and its effect if nothing is done.
+// changes and labels are the whole event; the effect leaves out any part an earlier
+// decision already put in the plan.
 export type ReportedEvent = {
   changes: Change[]
   labels: string[]
   effect: Effect
 }
 
-// A countermeasure Claude put in front of the planner. Its effect, with the event
-// applied too, is computed here, not taken from Claude.
+// A countermeasure Claude put in front of the planner. Its effect, with the part of the
+// event not yet in the plan applied first, is computed here, not taken from Claude.
 export type ProposedOption = {
   title: string
   reason: string
@@ -383,10 +385,16 @@ function presentOptions(state: PlanState, eventInput: unknown, optionsInput: unk
     throw new ChangeError('options を1つ以上指定してください')
   }
   const eventChanges = parseChanges(eventInput)
+  // Part of the event an earlier decision already put in the plan is not applied again,
+  // as changesToApply does when an option is adopted, so the numbers on the cards are
+  // what adopting would do.
+  const pendingEventChanges = eventChanges.filter(
+    (change) => !state.adopted.some((existing) => sameChange(existing, change)),
+  )
   const event: ReportedEvent = {
     changes: eventChanges,
     labels: eventChanges.map((change) => describeChange(change, state.data)),
-    effect: effectOf(state, eventChanges),
+    effect: effectOf(state, pendingEventChanges),
   }
   const options = optionsInput.map((raw): ProposedOption => {
     const changes = parseChanges(field(raw, 'changes'))
@@ -397,7 +405,7 @@ function presentOptions(state: PlanState, eventInput: unknown, optionsInput: unk
       event,
       changes,
       labels: changes.map((change) => describeChange(change, state.data)),
-      effect: effectOf(state, [...eventChanges, ...changes]),
+      effect: effectOf(state, [...pendingEventChanges, ...changes]),
     }
   })
 
