@@ -106,6 +106,39 @@
   color: var(--mantine-primary-color-contrast);
 }
 
+/* The focus ring of a segmented control stands 2px off the chosen part, as on tabs, so it
+   shows around the ink fill (WCAG 2.4.7). The control's 4px padding holds it. */
+.mantine-SegmentedControl-root .mantine-SegmentedControl-label {
+  outline-offset: 2px;
+}
+
+/* In the header, the screen's name beside the logo gives way before the buttons do. On a
+   phone the mark stands for the app's name, which screen readers still get, so the screen's
+   name has room. */
+.header-start,
+.header-title {
+  min-width: 0;
+}
+
+.app-name {
+  white-space: nowrap;
+}
+
+.screen-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 24.99em) {
+  .app-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+}
+
 /* Scrolling to a focused element keeps it clear of the fixed 56px header. */
 html {
   scroll-padding-top: 64px;

@@ -107,6 +107,11 @@ export const theme = createTheme({
   fontFamily,
   headings: { fontFamily: headingFamily, fontWeight: '500' },
   defaultRadius: 'md',
+  // From this width the role switch and the widest role's tabs fit the header; below it they
+  // move into the menu. Production's five tabs need 1286px with a two-digit count beside the
+  // decision log; the rest leaves room for a scrollbar and other fonts. The default
+  // breakpoints stay as they are.
+  breakpoints: { tabs: '84em' },
   respectReducedMotion: true,
   // A link differs from the text around it by its underline as well as its color (WCAG 1.4.1).
   components: {

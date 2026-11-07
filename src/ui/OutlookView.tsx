@@ -17,7 +17,7 @@ import {
 import { monthlyOutlook, type Shortage } from '../engine/economics'
 import { todayFocus, type FocusItem } from '../engine/focus'
 import { arrivalIfOrderedToday, type Plan, type ReleaseTiming } from '../engine/plan'
-import { channelOutlook, materialCover, type ChannelOutlook, type MaterialCover } from '../engine/records'
+import { materialCover, type MaterialCover } from '../engine/records'
 import { describeChange, type Change } from '../engine/scenario'
 import type { CrewDay } from '../engine/scheduler'
 import type { IsoDate, Order, Part } from '../engine/types'
@@ -37,6 +37,8 @@ type Props = {
   dealDemand: DealDemand
   // Opens an order in the progress tab.
   onShowOrder: (orderId: string) => void
+  // Opens a distributor's row on the head office's screen.
+  onShowChannel: (customer: string, partNumber: string) => void
 }
 
 const CLASS_LABELS: Record<PriorityClass, string> = { A: 'A 今月', B: 'B 来月', C: 'C 以降' }
@@ -61,7 +63,7 @@ export function ClassBadge({ value }: { value: PriorityClass }) {
   )
 }
 
-export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand, onShowOrder }: Props) {
+export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand, onShowOrder, onShowChannel }: Props) {
   const outlook = useMemo(() => monthlyOutlook(plan, today), [plan, today])
   const { data, settings } = plan.scenario
   const demands = useMemo(() => orderDemands(data, today), [data, today])
@@ -71,7 +73,6 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand, onShow
     () => new Map([...toRelease.values()].map((item) => [item.partNumber, timingOf(item)])),
     [toRelease, timingOf],
   )
-  const channels = useMemo(() => channelOutlook(data, today), [data, today])
   const focus = useMemo(() => todayFocus(plan, today, timingOf), [plan, today, timingOf])
   // Material still to order for what was added to the plan, shown in the part's row until the
   // workbook gives the order its material.
@@ -169,7 +170,7 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand, onShow
   return (
     <Stack gap="lg">
       <div className="outlook-hero">
-        <TodayFocus items={focus} today={today} onSelect={(item) => goTo(item, onShowOrder)} />
+        <TodayFocus items={focus} today={today} onSelect={(item) => goTo(item, onShowOrder, onShowChannel)} />
         <Paper withBorder p="lg" className="profit-card">
           <Group justify="space-between" wrap="nowrap" gap="xs">
             <Text size="sm" c="dimmed">
@@ -433,57 +434,6 @@ export function OutlookView({ plan, today, timingOf, onAdopt, dealDemand, onShow
           </Table.ScrollContainer>
         </Paper>
       </section>
-
-      {channels.length > 0 && (
-        <section>
-          <Title order={2} size="h4" mb={4}>
-            代理店の在庫
-          </Title>
-          <Text size="sm" c="dimmed" mb="sm">
-            代理店から来る注文は、在庫の見通しの「1日の出荷」に入っています。
-          </Text>
-          <Paper withBorder>
-            <Table.ScrollContainer minWidth={640}>
-              <Table verticalSpacing={6} horizontalSpacing={6}>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th className="sticky-col">代理店・型番</Table.Th>
-                    <Table.Th>報告</Table.Th>
-                    <Table.Th ta="right">今の在庫</Table.Th>
-                    <Table.Th ta="right">注文済み</Table.Th>
-                    <Table.Th ta="right">実売の何日分</Table.Th>
-                    <Table.Th pl="xl">注文が来る見込み</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {[...channels]
-                    .sort((a, b) => (a.orderOn ?? '9999').localeCompare(b.orderOn ?? '9999') || a.customer.localeCompare(b.customer))
-                    .map((entry) => (
-                      <Table.Tr key={`${entry.customer}-${entry.partNumber}`} id={rowId('channel', `${entry.customer}-${entry.partNumber}`)}>
-                        <Table.Th scope="row" className="sticky-col" fw={400} style={{ whiteSpace: 'nowrap' }} tabIndex={-1}>
-                          {entry.customer}　{entry.partNumber}
-                        </Table.Th>
-                        <Table.Td className="tabular">{shortDate(entry.asOf)}</Table.Td>
-                        <Table.Td ta="right" className="tabular">
-                          {entry.stockNow}個
-                        </Table.Td>
-                        <Table.Td ta="right" className="tabular">
-                          {entry.onOrder > 0 ? `${entry.onOrder}個` : '—'}
-                        </Table.Td>
-                        <Table.Td ta="right" className="tabular">
-                          {entry.daysLeft === null ? '—' : `${entry.daysLeft}日分`}
-                        </Table.Td>
-                        <Table.Td pl="xl">
-                          <OrderExpected entry={entry} today={today} />
-                        </Table.Td>
-                      </Table.Tr>
-                    ))}
-                </Table.Tbody>
-              </Table>
-            </Table.ScrollContainer>
-          </Paper>
-        </section>
-      )}
     </Stack>
   )
 }
@@ -615,15 +565,22 @@ function ProfitBar({ revenue, profit, costs }: { revenue: number; profit: number
   )
 }
 
-// Where a focus item is dealt with: the part's row in the stock outlook or the distributor's
-// row on this screen, briefly marked, or the order in the progress tab.
-function goTo(item: FocusItem, onShowOrder: (orderId: string) => void) {
+// Where a focus item is dealt with: the part's row in the stock outlook, briefly marked, the
+// order in the progress tab, or the distributor's row on the head office's screen.
+function goTo(
+  item: FocusItem,
+  onShowOrder: (orderId: string) => void,
+  onShowChannel: (customer: string, partNumber: string) => void,
+) {
   if (item.kind === 'lateOrder' || item.kind === 'promiseMissed') {
     onShowOrder(item.orderId)
     return
   }
-  const id = item.kind === 'distributorOrder' ? rowId('channel', `${item.customer}-${item.partNumber}`) : rowId('stock', item.partNumber)
-  const row = document.getElementById(id)
+  if (item.kind === 'distributorOrder') {
+    onShowChannel(item.customer, item.partNumber)
+    return
+  }
+  const row = document.getElementById(rowId('stock', item.partNumber))
   if (!row) return
   row.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
   row.querySelector<HTMLElement>('th')?.focus({ preventScroll: true })
@@ -748,23 +705,6 @@ function TimingLine({ timing, cover, today }: { timing: ReleaseTiming | undefine
         )
       )}
     </div>
-  )
-}
-
-// When a distributor is expected to order from the plant, and how many.
-function OrderExpected({ entry, today }: { entry: ChannelOutlook; today: IsoDate }) {
-  if (entry.orderOn === null) return <Text size="sm">見込みなし</Text>
-  if (entry.orderOn <= today) {
-    return (
-      <Text size="sm" fw={700} className="tabular" style={{ whiteSpace: 'nowrap' }}>
-        今にも {entry.orderQuantity}個
-      </Text>
-    )
-  }
-  return (
-    <Text size="sm" className="tabular" style={{ whiteSpace: 'nowrap' }}>
-      {shortDate(entry.orderOn)}ごろ {entry.orderQuantity}個
-    </Text>
   )
 }
 

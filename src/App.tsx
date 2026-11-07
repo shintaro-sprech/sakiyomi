@@ -5,9 +5,11 @@ import {
   Badge,
   Burger,
   Button,
+  Divider,
   Group,
   Loader,
   NavLink,
+  SegmentedControl,
   Tabs,
   Text,
   Tooltip,
@@ -16,9 +18,9 @@ import {
 } from '@mantine/core'
 import { useDisclosure, useMediaQuery, useReducedMotion } from '@mantine/hooks'
 import {
-  IconAdjustmentsHorizontal,
   IconBriefcase,
   IconBuildingFactory2,
+  IconBuildingWarehouse,
   IconCalendarStats,
   IconChartBar,
   IconChartLine,
@@ -26,6 +28,7 @@ import {
   IconLayoutKanban,
   IconLogout,
   IconMessageCircle,
+  IconSettings,
 } from '@tabler/icons-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
@@ -37,6 +40,7 @@ import type { PlantData } from './engine/types'
 import { currentVersion, dealsVersion } from './engine/handoff'
 import { useDealInsights } from './state/dealInsights'
 import { useAppState } from './state/store'
+import { ChannelsView } from './ui/ChannelsView'
 import { ChatPanel } from './ui/ChatPanel'
 import { nowAt } from './ui/clock'
 import { DealsView } from './ui/DealsView'
@@ -47,24 +51,46 @@ import { OutlookView } from './ui/OutlookView'
 import { ProgressView } from './ui/ProgressView'
 import { SettingsView } from './ui/SettingsView'
 import { moveFocus } from './ui/quietFocus'
+import {
+  FIRST_VISIT,
+  loadNavigation,
+  openScreen,
+  pickRole,
+  ROLES,
+  saveNavigation,
+  screensOf,
+  type Navigation,
+  type Role,
+  type Screen,
+} from './ui/roles'
 
 // The floor in 3D loads three.js only when its tab opens.
 const FactoryView = lazy(() => import('./ui/FactoryView'))
 
-type Tab = 'outlook' | 'deals' | 'demand' | 'progress' | 'factory' | 'gantt' | 'decisions' | 'settings'
+// Which role's screens come in which order is in roles.ts; these are their names.
+const SCREENS: Record<Screen, { label: string; icon: ReactNode }> = {
+  outlook: { label: '今月の計画', icon: <IconCalendarStats size={16} /> },
+  progress: { label: '進捗', icon: <IconChartBar size={16} /> },
+  factory: { label: '現場', icon: <IconBuildingFactory2 size={16} /> },
+  gantt: { label: 'ガント', icon: <IconLayoutKanban size={16} /> },
+  decisions: { label: '判断の記録', icon: <IconClipboardList size={16} /> },
+  deals: { label: '商談', icon: <IconBriefcase size={16} /> },
+  channels: { label: '代理店の在庫', icon: <IconBuildingWarehouse size={16} /> },
+  demand: { label: '需要予測', icon: <IconChartLine size={16} /> },
+  settings: { label: '設定とデータ', icon: <IconSettings size={16} /> },
+}
 
-const TABS: { value: Tab; label: string; icon: ReactNode }[] = [
-  // In the order of a planner's day: this month, where the work is, the floor and the
-  // machines' schedule, then the deals and demand further ahead, and the record of calls.
-  { value: 'outlook', label: '今月の計画', icon: <IconCalendarStats size={16} /> },
-  { value: 'progress', label: '進捗', icon: <IconChartBar size={16} /> },
-  { value: 'factory', label: '現場', icon: <IconBuildingFactory2 size={16} /> },
-  { value: 'gantt', label: 'ガント', icon: <IconLayoutKanban size={16} /> },
-  { value: 'deals', label: '商談', icon: <IconBriefcase size={16} /> },
-  { value: 'demand', label: '需要予測', icon: <IconChartLine size={16} /> },
-  { value: 'decisions', label: '判断の記録', icon: <IconClipboardList size={16} /> },
-  { value: 'settings', label: '設定とデータ', icon: <IconAdjustmentsHorizontal size={16} /> },
-]
+// The role and each role's last screen are kept in the browser for the next visit. Storage can
+// be missing or blocked; the app then starts as on a first visit and keeps working.
+const NAVIGATION_KEY = 'sakiyomi:navigation'
+
+function readNavigation(): Navigation {
+  try {
+    return loadNavigation(window.localStorage.getItem(NAVIGATION_KEY))
+  } catch {
+    return FIRST_VISIT
+  }
+}
 
 function App({ onLogout }: { onLogout?: () => void }) {
   const app = useAppState()
@@ -72,11 +98,16 @@ function App({ onLogout }: { onLogout?: () => void }) {
   // Below xl the panel would squeeze the progress table, and below md it covers the screen.
   const wide = useMediaQuery(`(min-width: ${theme.breakpoints.xl})`, true, { getInitialValueInEffect: false })
   const medium = useMediaQuery(`(min-width: ${theme.breakpoints.md})`, true, { getInitialValueInEffect: false })
-  const [tab, setTab] = useState<Tab>('outlook')
+  // From this width the role switch and the tabs sit in the header; below it, in the menu.
+  const roomy = useMediaQuery(`(min-width: ${theme.breakpoints.tabs})`, true, { getInitialValueInEffect: false })
+  const [navigation, setNavigation] = useState<Navigation>(readNavigation)
+  const { role, screen } = navigation
   // The smallest chance of a deal counted, chosen on the deals tab.
   const [dealThreshold, setDealThreshold] = useState(0.8)
   // A lot the Gantt chart asked the progress tab to show, until another tab is picked.
   const [progressFocus, setProgressFocus] = useState<{ orderId: string; lotId: string } | null>(null)
+  // A distributor today's focus asked the head office's screen to show, likewise.
+  const [channelFocus, setChannelFocus] = useState<{ customer: string; partNumber: string } | null>(null)
   const [preview, setPreview] = useState<ProposedOption | null>(null)
   // The title of an option closed because its changes no longer apply.
   const [lostPreview, setLostPreview] = useState<string | null>(null)
@@ -88,6 +119,13 @@ function App({ onLogout }: { onLogout?: () => void }) {
   const burgerRef = useRef<HTMLButtonElement>(null)
   const focusBanner = useRef(false)
   const { planState, saved } = app
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(NAVIGATION_KEY, saveNavigation(navigation))
+    } catch {
+      // Keep working without remembering.
+    }
+  }, [navigation])
   const insights = useDealInsights(saved.data, planState.today, dealThreshold)
   // The deals' demand is handed to the plan once a day, and again that day when it changes.
   const { saveHandoff } = app
@@ -123,11 +161,11 @@ function App({ onLogout }: { onLogout?: () => void }) {
     [planState, previewChanges, planned.previewFailed],
   )
 
-  // The menu only exists below xl, where the tabs do not fit the header.
+  // The menu only exists where the tabs do not fit the header.
   const closeNav = nav.close
   useEffect(() => {
-    if (wide) closeNav()
-  }, [wide, closeNav])
+    if (roomy) closeNav()
+  }, [roomy, closeNav])
 
   // After a phone preview closes the panel, the pressed button is gone; move focus to the banner.
   useEffect(() => {
@@ -137,9 +175,13 @@ function App({ onLogout }: { onLogout?: () => void }) {
     }
   }, [preview])
 
-  function selectTab(value: Tab) {
-    setTab(value)
+  function selectScreen(value: Screen) {
+    // A new screen opens at its top, not where the last one was scrolled to. A screen opened
+    // to show a row or a lot scrolls to it after.
+    if (value !== screen) window.scrollTo({ top: 0 })
+    setNavigation((current) => openScreen(current, value))
     setProgressFocus(null)
+    setChannelFocus(null)
     // Picked from the menu, which closes under the focus: the screen's heading takes it (WCAG 2.4.3).
     if (navOpened) {
       nav.close()
@@ -154,6 +196,26 @@ function App({ onLogout }: { onLogout?: () => void }) {
     }
   }
 
+  // A role opens the screen it had open last. In the menu, the menu stays open on the role's
+  // screens, so focus stays on the role switch.
+  function selectRole(value: Role) {
+    if (value !== role || screen === 'settings') window.scrollTo({ top: 0 })
+    setNavigation((current) => pickRole(current, value))
+    setProgressFocus(null)
+    setChannelFocus(null)
+  }
+
+  // The role switch reports only a change of role. Clicking the role already chosen while
+  // settings are open goes back to that role's screen.
+  function pressRole(event: React.MouseEvent<HTMLDivElement>) {
+    if (screen === 'settings' && event.target instanceof HTMLInputElement && event.target.value === role) selectRole(role)
+  }
+
+  // The gear opens settings from any role, and closes them back to the role's screen.
+  function toggleSettings() {
+    selectScreen(screen === 'settings' ? navigation.last[role] : 'settings')
+  }
+
   // Escape closes the menu and puts focus back on the button that opened it.
   function closeNavByKey(event: React.KeyboardEvent) {
     if (event.key !== 'Escape' || !navOpened) return
@@ -162,8 +224,14 @@ function App({ onLogout }: { onLogout?: () => void }) {
   }
 
   function showInProgress(orderId: string, lotId: string) {
-    selectTab('progress')
+    selectScreen('progress')
     setProgressFocus({ orderId, lotId })
+  }
+
+  // A distributor about to order is the head office's to deal with: its role and its row.
+  function showChannel(customer: string, partNumber: string) {
+    selectScreen('channels')
+    setChannelFocus({ customer, partNumber })
   }
 
   // On a phone the menu and the panel both cover the screen, so only one is open at a time.
@@ -187,7 +255,8 @@ function App({ onLogout }: { onLogout?: () => void }) {
     }
   }
 
-  const count = (value: Tab) =>
+  const roleLabel = ROLES.find((item) => item.value === role)?.label
+  const count = (value: Screen) =>
     value === 'decisions' && saved.decisions.length > 0 ? (
       <span className="tab-count">
         {saved.decisions.length}
@@ -198,54 +267,60 @@ function App({ onLogout }: { onLogout?: () => void }) {
   return (
     <AppShell
       header={{ height: 56 }}
-      // The tabs fit the header from xl; below it they move into the menu.
-      navbar={{ width: 240, breakpoint: 'xl', collapsed: { mobile: !navOpened, desktop: true } }}
+      // The role switch and its tabs fit the header from the tabs breakpoint; below it they move into the menu.
+      navbar={{ width: 240, breakpoint: 'tabs', collapsed: { mobile: !navOpened, desktop: true } }}
       aside={{ width: 400, breakpoint: 'md', collapsed: { desktop: !chatOpen, mobile: !chatOpen } }}
       padding="md"
       transitionDuration={reduceMotion ? 0 : 200}
     >
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between" wrap="nowrap" gap="md">
-          <Group gap="lg" wrap="nowrap">
+          <Group gap="lg" wrap="nowrap" className="header-start">
             <Burger
               ref={burgerRef}
               opened={navOpened}
               onClick={toggleNav}
-              hiddenFrom="xl"
+              hiddenFrom="tabs"
               size="sm"
               aria-label="画面の一覧"
               aria-expanded={navOpened}
               aria-controls="app-menu"
             />
-            <Group gap={8} wrap="nowrap">
+            <Group gap={8} wrap="nowrap" className="header-title">
               <img className="app-logo" src="/sakiyomi-mark.svg" alt="" width={26} height={26} />
-              <Text component="h1" fw={700} size="lg" style={{ whiteSpace: 'nowrap' }}>
+              <Text component="h1" fw={700} size="lg" className="app-name">
                 サキヨミ
+              </Text>
+              {/* Where the tabs are folded into the menu, the screen's name stays beside the logo. */}
+              <Text fw={700} hiddenFrom="tabs" aria-hidden="true" className="nowrap screen-name">
+                ／{SCREENS[screen].label}
               </Text>
               {saved.dataSource === 'sample' && (
                 <Badge variant="light" color="gray" fz="xs" visibleFrom="lg">
                   サンプルデータ
                 </Badge>
               )}
-              {/* Where the tabs are folded into the menu, the screen's name stays beside the logo. */}
-              <Text fw={700} hiddenFrom="xl" aria-hidden="true" className="nowrap">
-                ／{TABS.find((item) => item.value === tab)?.label}
-              </Text>
             </Group>
-            <Tabs
-              value={tab}
-              onChange={(value) => value && selectTab(value as Tab)}
-              variant="pills"
-              visibleFrom="xl"
-            >
-              <Tabs.List>
-                {TABS.map((item) => (
-                  <Tabs.Tab key={item.value} value={item.value} leftSection={item.icon} rightSection={count(item.value)}>
-                    {item.label}
-                  </Tabs.Tab>
-                ))}
-              </Tabs.List>
-            </Tabs>
+            {/* The role comes first and its screens right after it; settings open from the gear. */}
+            <Group gap="sm" wrap="nowrap" ml="xs" visibleFrom="tabs">
+              <SegmentedControl
+                data={ROLES}
+                value={role}
+                onChange={(value) => selectRole(value as Role)}
+                onClick={pressRole}
+                color="primary"
+                aria-label="担当"
+              />
+              <Tabs value={screen === 'settings' ? null : screen} onChange={(value) => value && selectScreen(value as Screen)} variant="pills">
+                <Tabs.List aria-label={`${roleLabel}の画面`}>
+                  {screensOf(role).map((value) => (
+                    <Tabs.Tab key={value} value={value} leftSection={SCREENS[value].icon} rightSection={count(value)}>
+                      {SCREENS[value].label}
+                    </Tabs.Tab>
+                  ))}
+                </Tabs.List>
+              </Tabs>
+            </Group>
           </Group>
           <Group gap={8} wrap="nowrap">
             <Button
@@ -269,6 +344,19 @@ function App({ onLogout }: { onLogout?: () => void }) {
             >
               <IconMessageCircle size={18} />
             </ActionIcon>
+            {/* On a phone the gear has no room here; settings sit at the end of the menu instead. */}
+            <Tooltip label={SCREENS.settings.label} withArrow events={{ hover: true, focus: true, touch: false }}>
+              <ActionIcon
+                variant={screen === 'settings' ? 'filled' : 'default'}
+                size="lg"
+                onClick={toggleSettings}
+                aria-label={SCREENS.settings.label}
+                aria-pressed={screen === 'settings'}
+                visibleFrom="xs"
+              >
+                <IconSettings size={18} />
+              </ActionIcon>
+            </Tooltip>
             {onLogout && (
               <Tooltip label="ログアウト" withArrow>
                 <ActionIcon variant="default" size="lg" onClick={onLogout} aria-label="ログアウト">
@@ -281,19 +369,40 @@ function App({ onLogout }: { onLogout?: () => void }) {
       </AppShell.Header>
 
       <AppShell.Navbar p="sm" id="app-menu" aria-label="画面の一覧" inert={!navOpened} onKeyDown={closeNavByKey}>
-        {TABS.map((item) => (
+        <SegmentedControl
+          data={ROLES}
+          value={role}
+          onChange={(value) => selectRole(value as Role)}
+          onClick={pressRole}
+          color="primary"
+          aria-label="担当"
+          fullWidth
+          mb="sm"
+        />
+        {screensOf(role).map((value) => (
           <NavLink
-            key={item.value}
+            key={value}
             component="button"
-            label={item.label}
-            leftSection={item.icon}
-            rightSection={count(item.value)}
-            active={tab === item.value}
+            label={SCREENS[value].label}
+            leftSection={SCREENS[value].icon}
+            rightSection={count(value)}
+            active={screen === value}
             variant="filled"
-            aria-current={tab === item.value ? 'page' : undefined}
-            onClick={() => selectTab(item.value)}
+            aria-current={screen === value ? 'page' : undefined}
+            onClick={() => selectScreen(value)}
           />
         ))}
+        <Divider my="sm" hiddenFrom="xs" />
+        <NavLink
+          component="button"
+          label={SCREENS.settings.label}
+          leftSection={SCREENS.settings.icon}
+          active={screen === 'settings'}
+          variant="filled"
+          aria-current={screen === 'settings' ? 'page' : undefined}
+          onClick={() => selectScreen('settings')}
+          hiddenFrom="xs"
+        />
       </AppShell.Navbar>
 
       {/* The open menu covers the page, and so does the panel on a phone, so the page must not take focus then (WCAG 2.4.11). */}
@@ -331,7 +440,7 @@ function App({ onLogout }: { onLogout?: () => void }) {
             </Group>
           </Alert>
         )}
-        {tab === 'outlook' && (
+        {screen === 'outlook' && (
           // While an option is previewed the outlook shows its plan, so nothing is added from it.
           <OutlookView
             plan={plan}
@@ -340,13 +449,15 @@ function App({ onLogout }: { onLogout?: () => void }) {
             onAdopt={preview ? undefined : app.adopt}
             dealDemand={insights.handoffDemand}
             onShowOrder={(orderId) => showInProgress(orderId, '')}
+            onShowChannel={showChannel}
           />
         )}
-        {tab === 'deals' && (
+        {screen === 'deals' && (
           <DealsView app={app} today={planState.today} insights={insights} threshold={dealThreshold} onThreshold={setDealThreshold} />
         )}
-        {tab === 'demand' && <DemandView app={app} today={planState.today} />}
-        {tab === 'progress' && (
+        {screen === 'channels' && <ChannelsView data={plan.scenario.data} today={planState.today} pointed={channelFocus} />}
+        {screen === 'demand' && <DemandView app={app} today={planState.today} />}
+        {screen === 'progress' && (
           <ProgressView
             plan={plan}
             today={planState.today}
@@ -354,16 +465,16 @@ function App({ onLogout }: { onLogout?: () => void }) {
             focus={progressFocus}
           />
         )}
-        {tab === 'factory' && (
+        {screen === 'factory' && (
           <Suspense fallback={<Loader size="sm" m="xl" />}>
             <FactoryView plan={plan} today={planState.today} />
           </Suspense>
         )}
-        {tab === 'gantt' && (
+        {screen === 'gantt' && (
           <GanttView plan={plan} today={planState.today} highlight={preview} onShowInProgress={showInProgress} />
         )}
-        {tab === 'decisions' && <DecisionsView decisions={saved.decisions} onRemove={app.removeDecision} />}
-        {tab === 'settings' && <SettingsView app={app} />}
+        {screen === 'decisions' && <DecisionsView decisions={saved.decisions} onRemove={app.removeDecision} />}
+        {screen === 'settings' && <SettingsView app={app} />}
       </AppShell.Main>
 
       <AppShell.Aside id="chat-panel" aria-label="Claude に相談" inert={!chatOpen}>
