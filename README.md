@@ -6,6 +6,8 @@
 
 Built during the hackathon "Built with Claude: Japan 2026" (2026-11-02 to 11-10).
 
+Demo video (2:50, in Japanese): https://youtu.be/GYDCeJ7otY4
+
 ## Why
 
 In a small job shop, the plan lives in a spreadsheet and the know-how lives in one veteran's head. When material is late, an order grows, or a machine goes down, only that person can tell which shipments will slip and what to rearrange. Sakiyomi lets anyone ask, see the effect on every order, and keep a record of why a decision was made.
@@ -110,6 +112,14 @@ Where the data goes:
 The sample data in [sample-data/sample.ts](sample-data/sample.ts) was made up for this project. Part numbers, machines and quantities do not come from any real plant, and there is no personal data. Dates are relative to the day the app is opened. The sample plant works three shifts on weekdays; at the weekend one person of each crew comes in on the day shift as holiday work. In the sheet-metal and machining crews, one person on each shift can set the machines up on their own.
 
 The meshes in [scripts/models/generated/](scripts/models/generated/) were generated for this project on 6 November 2026 with [Tripo](https://www.tripo3d.ai/), a text-to-3D service, on a paid plan that allows commercial use, from descriptions written for this project: the welding robot's arm, the truck's cab and wheels, the forklift, the band saw, the drill press, the surface grinder and the measuring machine. `npm run models` cuts, paints and fits them in Blender. Every other model, and the rest of these, is built from code in the same script.
+
+## Other tools used
+
+Development was done with Claude Code. Other AI tools were used only to help with the following.
+
+- The shapes of some 3D models: Tripo (see Data above)
+- Logo ideas: image ideas were generated with Codex CLI along the way. The logo in the app is an SVG drawn by a script
+- The demo video's narration: read with Gemini TTS (gemini-3.8-flash-tts), replicating the developer's own voice. The video was made outside this repository
 
 ## Layout
 
