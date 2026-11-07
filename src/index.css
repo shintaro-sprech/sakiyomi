@@ -36,9 +36,11 @@
   --sk-floor-material: #9C9A92;
   --sk-floor-carton: #C69C6D;
   /* A machine's state, as a signal lamp shows it, each 3:1 or more on the cards. */
-  --sk-state-running: var(--mantine-color-teal-6);
+  /* A signal-lamp green, brighter than the app's muted green so a running machine stands out on
+     the floor; it keeps 3:1 against the labels and the card's bar track. Idle and off are dark. */
+  --sk-state-running: #2f9e44;
   --sk-state-setup: var(--mantine-color-orange-6);
-  --sk-state-idle: var(--mantine-color-gray-6);
+  --sk-state-idle: var(--mantine-color-gray-7);
   --sk-state-stopped: var(--mantine-color-red-6);
   --sk-class-a-fill: var(--mantine-color-red-1);
   --sk-class-b-fill: var(--mantine-color-orange-1);
@@ -2153,6 +2155,25 @@ tr.is-before > * {
 
 .factory-dot.state-running {
   background: var(--sk-state-running);
+  animation: factory-lamp 2.4s ease-out infinite;
+}
+
+/* A running machine's lamp breathes: a ring grows out of the dot and fades, slowly. */
+@keyframes factory-lamp {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--sk-state-running) 60%, transparent);
+  }
+
+  70%,
+  100% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--sk-state-running) 0%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .factory-dot.state-running {
+    animation: none;
+  }
 }
 
 /* Each state has its own shape as well as its color: setting up is half full, stopped square. */
