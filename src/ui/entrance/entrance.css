@@ -1,6 +1,7 @@
 /*
- * The entrance: the scene fills the screen, and the name, one line and the button stand at the
- * foot of it on the page's ivory.
+ * The entrance: the scene fills the screen, and the mark, the name, a line on what it does and the
+ * button stand on a card of frosted glass over it: at the lower left, at the foot on a phone, and
+ * at the left on a low, wide screen.
  */
 
 .entrance {
@@ -41,54 +42,109 @@
   opacity: 1;
 }
 
-/* Ivory rising from the bottom left under the words, so they read at full contrast over the
-   floor; on a narrow screen, across the whole width. */
-.entrance-stage::after {
-  content: '';
+/* The card: frosted glass in the ground's own color, so where nothing stands behind it, it shows by
+   its bright edge, the light across it and its shadow. Its tint alone keeps the words readable over
+   whatever passes behind: at 0.78 over black it is #BEBEB9, 5.8:1 for the line under the name and
+   9.8:1 for the name. Where the glass cannot blur, or less transparency is asked for, it is plain
+   white. It never moves. */
+.entrance-copy {
   position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse 62% 48% at 0% 100%, #FAF9F5 55%, rgb(250 249 245 / 0) 100%);
-  pointer-events: none;
+  left: max(24px, 4vw, env(safe-area-inset-left));
+  bottom: max(24px, 5vh, calc(env(safe-area-inset-bottom) + 16px));
+  box-sizing: border-box;
+  width: min(clamp(22rem, 15rem + 9.4vw, 25rem), calc(100vw - 48px));
+  /* However large the text is set, the button can still be scrolled to inside the card. */
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 30px 28px 28px;
+  text-align: center;
+  border: 1px solid #FFFFFF;
+  border-radius: 24px;
+  background: #FFFFFF;
+  box-shadow:
+    0 0 0 1px rgb(20 20 19 / 0.07),
+    0 2px 6px rgb(20 20 19 / 0.05),
+    0 28px 60px -16px rgb(20 20 19 / 0.2),
+    inset 1px 1px 0 rgb(255 255 255 / 0.95),
+    inset -1px -1px 0 rgb(20 20 19 / 0.06),
+    inset 0 -22px 32px -28px rgb(20 20 19 / 0.08);
 }
 
-@media (max-aspect-ratio: 1/1) {
-  .entrance-stage::after {
-    background: linear-gradient(to top, #FAF9F5 0%, #FAF9F5 26%, rgb(250 249 245 / 0) 40%);
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .entrance-copy {
+    background:
+      linear-gradient(135deg, rgb(255 255 255 / 0.85) 0%, rgb(255 255 255 / 0.3) 30%, rgb(255 255 255 / 0) 52%),
+      linear-gradient(315deg, rgb(255 255 255 / 0.35) 0%, rgb(255 255 255 / 0) 22%),
+      rgb(244 243 237 / 0.78);
+    -webkit-backdrop-filter: blur(24px) saturate(1.15);
+    backdrop-filter: blur(24px) saturate(1.15);
   }
 }
 
-.entrance-copy {
-  position: absolute;
-  left: max(24px, 6vw, env(safe-area-inset-left));
-  bottom: max(32px, 7vh, calc(env(safe-area-inset-bottom) + 20px));
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 10px;
-  max-width: min(36rem, calc(100vw - 48px));
-  /* The words keep their ivory under them however large the text is set, with a soft edge; at
-     the usual sizes this lies inside the wash and does not show. */
-  border-radius: 16px;
-  background: #FAF9F5;
-  box-shadow: 0 0 28px 20px #FAF9F5;
+@media (prefers-reduced-transparency: reduce) {
+  .entrance-copy {
+    background: #FFFFFF;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+.entrance-mark {
+  display: block;
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
 }
 
 .entrance .entrance-title {
-  margin: 0;
+  margin: 12px 0 0;
+  /* Letter spacing trails the last letter too; the same on the left keeps the name on center. */
+  padding-left: 0.06em;
   color: #141413;
-  font-size: min(clamp(2.75rem, 2rem + 3.4vw, 4.75rem), 13vh);
+  font-size: clamp(2.25rem, 1.9rem + 0.9vw, 2.75rem);
   font-weight: 500;
-  line-height: 1.1;
-  letter-spacing: 0.04em;
+  line-height: 1.15;
+  letter-spacing: 0.06em;
 }
 
 .entrance .entrance-lead {
-  margin: 0 0 10px;
+  /* Two lines, broken between the phrases, at any width. */
+  max-width: 16em;
+  margin: 8px 0 0;
   color: #3D3D3A;
-  font-size: clamp(1rem, 0.9rem + 0.35vw, 1.2rem);
-  line-height: 1.6;
+  font-size: clamp(0.9375rem, 0.85rem + 0.2vw, 1.0625rem);
+  line-height: 1.7;
   /* Breaks between phrases (at the <wbr>), and inside a word only when the text is set so large
      that a phrase does not fit the width. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* However large the text is set, the words on the button wrap (between アプリを and 見る) instead
+   of being cut off, and the button grows to hold them. Scrolled to inside the card, it comes into
+   view with its focus ring. The words keep their full line height: trimmed to the capitals, as the
+   label is by default, a block clips the tops and feet of the letters. */
+.entrance .entrance-button {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: auto;
+  min-height: var(--button-height);
+  margin-top: 24px;
+  padding: 6px 16px;
+  scroll-margin-block: 8px;
+}
+
+.entrance .entrance-button .mantine-Button-label {
+  display: block;
+  height: auto;
+  text-box-trim: none;
+  line-height: 1.3;
+  white-space: normal;
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
@@ -98,33 +154,95 @@
   outline-offset: 3px;
 }
 
-/* On a low, wide screen (a phone on its side, or a page zoomed far in) the words stand at the
-   left on the ivory, and the scene is framed to their right (EntranceScene.tsx). */
-@media (max-height: 500px) and (min-aspect-ratio: 6/5) {
-  /* Solid under the whole width of the words, however far the page is zoomed in. */
-  .entrance-stage::after {
-    background: linear-gradient(
-      to right,
-      #FAF9F5 0,
-      #FAF9F5 calc(max(44vw, 17rem) + 32px),
-      rgb(250 249 245 / 0) calc(max(44vw, 17rem) + 16vw)
-    );
+/* On a phone the card spans the foot of the screen, under the scene, where the thumb is. */
+@media (max-width: 36em) {
+  .entrance-copy {
+    left: max(16px, env(safe-area-inset-left));
+    right: max(16px, env(safe-area-inset-right));
+    bottom: max(16px, calc(env(safe-area-inset-bottom) + 8px));
+    width: auto;
+    max-height: calc(100% - 32px);
+    padding: 24px 22px 22px;
+    border-radius: 20px;
   }
+}
 
+/* On a low, wide screen (a phone on its side, or a page zoomed far in) the card stands at the
+   left, and the scene is framed to its right (EntranceScene.tsx). */
+@media (max-height: 500px) and (min-aspect-ratio: 6/5) {
   .entrance-copy {
     top: 0;
     bottom: 0;
     right: auto;
-    justify-content: center;
-    max-width: max(44vw, 17rem);
+    margin-block: auto;
+    width: min(22rem, max(44vw, 17rem), calc(100vw - 48px));
+    height: fit-content;
+    max-height: calc(100% - 24px);
+    padding: 20px 24px;
+    border-radius: 20px;
+  }
+
+  .entrance-mark {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  .entrance .entrance-title {
+    margin-top: 8px;
+    font-size: 2rem;
+  }
+
+  .entrance .entrance-button {
+    margin-top: 16px;
   }
 }
 
-/* On a phone the button spans the width, where the thumb is. */
-@media (max-width: 36em) {
+/* Where the screen is low for the text (a page zoomed in to 400%, or text set large), everything
+   comes closer, and lower still the mark is left out, so the card fits without scrolling. In em,
+   so the text size counts. */
+@media (max-height: 18.75em) {
   .entrance-copy {
-    right: max(24px, env(safe-area-inset-right));
-    align-items: stretch;
+    max-height: calc(100% - 16px);
+    padding: 14px 20px;
+  }
+
+  .entrance-mark {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+
+  .entrance .entrance-title {
+    margin-top: 4px;
+    font-size: 1.625rem;
+  }
+
+  .entrance .entrance-lead {
+    margin-top: 4px;
+    line-height: 1.55;
+  }
+
+  .entrance .entrance-button {
+    min-height: 2.75rem;
+    margin-top: 12px;
+  }
+}
+
+@media (max-height: 14.375em) {
+  .entrance-copy {
+    padding: 10px 16px;
+  }
+
+  .entrance-mark {
+    display: none;
+  }
+
+  .entrance .entrance-title {
+    margin-top: 0;
+    font-size: 1.375rem;
+  }
+
+  .entrance .entrance-button {
+    margin-top: 10px;
   }
 }
 

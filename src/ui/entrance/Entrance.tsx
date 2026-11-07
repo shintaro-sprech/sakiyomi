@@ -2,7 +2,7 @@ import './entrance.css'
 
 import { Button, Loader, Text, Title, VisuallyHidden } from '@mantine/core'
 import { useReducedMotion } from '@mantine/hooks'
-import { IconArrowRight } from '@tabler/icons-react'
+import { IconChevronRight } from '@tabler/icons-react'
 import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 // three.js and the models load only here and on the floor tab, after the words and the button
@@ -37,8 +37,8 @@ function canDraw(): boolean {
   }
 }
 
-// The way in: a picture of the work flowing from deals to shipping on time, the name, and one
-// button into the app. Nothing to sign in to.
+// The way in: a picture of the work flowing from deals to shipping on time, and over it a card of
+// frosted glass with the mark, the name and one button into the app. Nothing to sign in to.
 export function Entrance({ onEnter, entering, appLoaded }: Props) {
   const reducedMotion = useReducedMotion(false, { getInitialValueInEffect: false })
   const [failed, setFailed] = useState(false)
@@ -81,6 +81,8 @@ export function Entrance({ onEnter, entering, appLoaded }: Props) {
         )}
       </div>
       <div className="entrance-copy">
+        {/* The heading says the name; the mark above it is only a picture. */}
+        <img className="entrance-mark" src="/sakiyomi-mark.svg" alt="" width={44} height={44} />
         <Title order={1} className="entrance-title">
           サキヨミ
         </Title>
@@ -89,16 +91,20 @@ export function Entrance({ onEnter, entering, appLoaded }: Props) {
           生産計画アシスタント
         </Text>
         <Button
+          fullWidth
           size="lg"
           color="ink"
           className="entrance-button"
-          // While the app loads, a spinner in place of the arrow; the button stays enabled, so
+          // While the app loads, a spinner in place of the chevron; the button stays enabled, so
           // focus stays on it.
-          rightSection={entering ? <Loader size={18} color="white" /> : <IconArrowRight size={20} stroke={1.75} aria-hidden="true" />}
+          rightSection={entering ? <Loader size={18} color="white" /> : <IconChevronRight size={20} stroke={2} aria-hidden="true" />}
           aria-busy={entering}
+          // The name as it reads, without the space a screen reader puts at the <wbr>.
+          aria-label="アプリを見る"
           onClick={onEnter}
         >
-          アプリを見る
+          アプリを<wbr />
+          見る
         </Button>
         {/* Says that the app is loading to a screen reader, which the spinner does not. */}
         <VisuallyHidden role="status">{entering ? '読み込み中' : ''}</VisuallyHidden>

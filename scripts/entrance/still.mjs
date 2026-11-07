@@ -29,8 +29,8 @@ const SHOTS = [
   { file: 'still-low.webp', width: 844, height: 390, scale: 2, mobile: true },
 ]
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.glb': 'model/gltf-binary', '.svg': 'image/svg+xml', '.webp': 'image/webp' }
-// The words, the wash under them and the old picture are hidden, and the scene shows at once.
-const HIDE = `.entrance-copy, .entrance-still, .entrance-stage::after { display: none !important }
+// The card and the old picture are hidden, and the scene shows at once.
+const HIDE = `.entrance-copy, .entrance-still { display: none !important }
 .entrance-scene { opacity: 1 !important; transition: none !important }`
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
