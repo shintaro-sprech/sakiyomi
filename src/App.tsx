@@ -2,7 +2,6 @@ import {
   ActionIcon,
   Alert,
   AppShell,
-  Badge,
   Burger,
   Button,
   Divider,
@@ -295,11 +294,6 @@ function App({ onLogout }: { onLogout?: () => void }) {
               <Text fw={700} hiddenFrom="tabs" aria-hidden="true" className="nowrap screen-name">
                 ／{SCREENS[screen].label}
               </Text>
-              {saved.dataSource === 'sample' && (
-                <Badge variant="light" color="gray" fz="xs" visibleFrom="lg">
-                  サンプルデータ
-                </Badge>
-              )}
             </Group>
             {/* The role comes first and its screens right after it; settings open from the gear. */}
             <Group gap="sm" wrap="nowrap" ml="xs" visibleFrom="tabs">
