@@ -42,6 +42,8 @@ describe('converse', () => {
 
     expect(stopReason).toBe('end_turn')
     expect(history.map((message) => message.role)).toEqual(['user', 'assistant', 'user', 'assistant'])
+    // The Worker takes JSON only (worker/chat.ts).
+    expect(fetchMock.mock.calls[0][1].headers['content-type']).toBe('application/json')
     const sent = JSON.parse(fetchMock.mock.calls[1][1].body).messages
     const toolResult = sent[2].content[0]
     expect(toolResult).toMatchObject({ type: 'tool_result', tool_use_id: 'call-1', is_error: false })

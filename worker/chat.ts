@@ -13,6 +13,12 @@ export async function handleChat(request: Request, env: ChatEnv): Promise<Respon
   if (request.method !== 'POST') {
     return error(405, 'POST で送ってください')
   }
+  // The app sends JSON. A page on another site can only make a visitor's browser post plain text,
+  // form data or nothing as the type without asking first, and this endpoint answers no such
+  // question, so taking JSON alone keeps other sites from spending the key through visitors.
+  if (mediaType(request.headers.get('content-type')) !== 'application/json') {
+    return error(415, 'JSON（application/json）で送ってください')
+  }
   if (!env.ANTHROPIC_API_KEY) {
     return error(503, 'この環境では相談機能を使えません（ANTHROPIC_API_KEY が設定されていません）')
   }
@@ -79,6 +85,11 @@ function parseMessages(body: string): Anthropic.Beta.BetaMessageParam[] | null {
       (typeof message.content === 'string' || Array.isArray(message.content)),
   )
   return valid ? (messages as Anthropic.Beta.BetaMessageParam[]) : null
+}
+
+// "application/json; charset=utf-8" is still JSON.
+function mediaType(contentType: string | null): string {
+  return (contentType ?? '').split(';')[0].trim().toLowerCase()
 }
 
 function error(status: number, message: string): Response {
