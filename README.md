@@ -8,6 +8,8 @@ Built during the hackathon "Built with Claude: Japan 2026" (2026-11-02 to 11-10)
 
 Demo video (2:50, in Japanese): https://youtu.be/GYDCeJ7otY4
 
+Live app (no sign-in): https://sakiyomi.shintaro-solopreneur.workers.dev
+
 ## Why
 
 In a small job shop, the plan lives in a spreadsheet and the know-how lives in one veteran's head. When material is late, an order grows, or a machine goes down, only that person can tell which shipments will slip and what to rearrange. Sakiyomi lets anyone ask, see the effect on every order, and keep a record of why a decision was made.
@@ -39,6 +41,8 @@ The core of the app is a tool-use loop with Claude Opus 5.5 (`claude-opus-5-5`, 
 | `present_options` | Shows option cards; the reported event and the countermeasures are kept apart |
 
 The tools run in the browser against the same scheduler that draws the screens, so the numbers Claude works from and the numbers on the option cards come from the same calculation as the screens. The Cloudflare Worker only relays: it fixes the model, system prompt, tool definitions and output length, accepts only user and assistant turns, limits requests per visitor and enables server-side refusal fallbacks. The API key never reaches the browser. In the browser, Claude replies at most 12 times to one message from the planner; if it is still calling tools by then, the app stops and asks the planner to split the question.
+
+How Sakiyomi was built with Claude Code, including the checks by verifier subagents and workflows, and the problems met along the way, is recorded in [docs/開発メモ.md](docs/開発メモ.md) (in Japanese).
 
 ### What code checks, what the prompt asks, what the planner decides
 
@@ -118,7 +122,7 @@ The meshes in [scripts/models/generated/](scripts/models/generated/) were genera
 Development was done with Claude Code. Other AI tools were used only to help with the following.
 
 - The shapes of some 3D models: Tripo (see Data above)
-- Logo ideas: image ideas were generated with Codex CLI along the way. The logo in the app is an SVG drawn by a script
+- Ideas for the logo and the entrance screen: image ideas were generated with Codex CLI along the way. The logo in the app is an SVG drawn by a script. The entrance scene sets out and moves the app's own 3D models with three.js
 - The demo video's narration: read with Gemini TTS (gemini-3.8-flash-tts), replicating the developer's own voice. The video was made outside this repository
 
 ## Layout
