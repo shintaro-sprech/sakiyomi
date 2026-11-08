@@ -6,7 +6,7 @@
 
 Built during the hackathon "Built with Claude: Japan 2026" (2026-11-02 to 11-10).
 
-Demo video (2:50, in Japanese): https://youtu.be/GYDCeJ7otY4
+Demo video (2:50, in Japanese): https://youtu.be/C7FN3tJYdb0
 
 Live app (no sign-in): https://sakiyomi.shintaro-solopreneur.workers.dev
 

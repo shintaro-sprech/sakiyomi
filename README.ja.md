@@ -6,7 +6,7 @@ English: [README.md](README.md)
 
 ハッカソン「Built with Claude: Japan 2026」（2026-11-02〜11-10）の期間中に作りました。
 
-デモ動画（2分50秒）：https://youtu.be/GYDCeJ7otY4
+デモ動画（2分50秒）：https://youtu.be/C7FN3tJYdb0
 
 公開版（ログインは不要）：https://sakiyomi.shintaro-solopreneur.workers.dev
 
