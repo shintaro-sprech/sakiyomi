@@ -65,6 +65,8 @@ Not everything Claude says is checked the same way. Where a row says Tested, the
 
 Open https://sakiyomi.shintaro-solopreneur.workers.dev and press "アプリを見る" (Open the app); https://sakiyomi.shintaro-solopreneur.workers.dev/app opens the app directly. The app starts with fictional sample data, and what you change is saved only in your browser. Open the "Claude に相談" (Ask Claude) panel at the top right (it is open already on a wide screen) and try the first suggested message, "注番1045の材料が2日遅れると連絡がありました" (the material for order 1045 is two days late).
 
+The public app has no API key. Its Ask Claude panel replays, in the same order, the replies Claude gave to the suggested messages on 2026-11-10 (the tools still run and the option cards are still worked out in your browser). So that the dates in those replies hold, the public app always runs with 2026-11-10 as today. To talk with Claude freely, use your own key as in "Try it locally" below. `node scripts/record-answers.mjs` records the replies again (with the key in `.dev.vars`; the day you record becomes today in the public app).
+
 ## Try it locally
 
 Requires Node.js 22 or later.
@@ -109,7 +111,8 @@ The first six sheets are required. Without crews and attendance the plan has no 
 Where the data goes:
 
 - The data, settings and decision log are kept only in this browser's localStorage. No server stores them.
-- Only when you use Ask Claude, the conversation and the tool results Claude asks for go through the Worker to the Anthropic API. These carry the contents of the plan: orders, part numbers, quantities, due dates, lots, machines, prices and material costs, the labor rate, customer names, deals (names, salespeople, close dates, quantities and chances of winning) and orders by month. The Worker does not store them. How Anthropic handles them is set by the Anthropic API terms.
+- On the public app, Ask Claude only replays recorded replies and sends nothing anywhere.
+- Only when you run it yourself and use Ask Claude, the conversation and the tool results Claude asks for go through the Worker to the Anthropic API. These carry the contents of the plan: orders, part numbers, quantities, due dates, lots, machines, prices and material costs, the labor rate, customer names, deals (names, salespeople, close dates, quantities and chances of winning) and orders by month. The Worker does not store them. How Anthropic handles them is set by the Anthropic API terms.
 
 ## Data
 

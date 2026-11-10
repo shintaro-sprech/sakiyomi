@@ -3,12 +3,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sampleDeals } from '../../sample-data/deals'
 import { sampleOrderHistory } from '../../sample-data/orderHistory'
 import { createSampleData, sampleActuals, sampleChannelStocks, sampleCustomerOrders } from '../../sample-data/sample'
-import { localToday } from '../engine/dates'
 import { addVersion, type HandoffVersion } from '../engine/handoff'
 import type { PlanState } from '../engine/plan'
 import { applyChanges, buildScenario, ChangeError, pinAddedOrders, type Change } from '../engine/scenario'
 import { createDefaultSettings, createSampleSettings } from '../engine/settings'
 import type { Equipment, PlantData, Settings } from '../engine/types'
+import { appToday, currentTime, PINNED_DAY } from './clock'
 
 // A change the planner put into the plan, kept with the reasoning behind it.
 export type Decision = {
@@ -39,13 +39,15 @@ export type SavedState = {
 // Bumped when the saved shape changes. Version 2 had no crews; it is carried
 // over with the sample's crews, or none for data read from Excel. Older saves
 // are replaced by the sample.
-const STORAGE_KEY = 'sakiyomi:v3'
-const PREVIOUS_KEY = 'sakiyomi:v2'
+// The public sample runs on a pinned day and keeps its own save, so a plan saved on
+// other days never opens there.
+const STORAGE_KEY = PINNED_DAY ? 'sakiyomi:pinned:v3' : 'sakiyomi:v3'
+const PREVIOUS_KEY = PINNED_DAY ? null : 'sakiyomi:v2'
 
 function createInitialState(): SavedState {
   return {
     version: 3,
-    data: createSampleData(localToday()),
+    data: createSampleData(appToday()),
     settings: createSampleSettings(),
     decisions: [],
     dataSource: 'sample',
@@ -60,7 +62,7 @@ function load(): SavedState {
       const parsed = JSON.parse(raw) as SavedState
       if (parsed.version === 3) return withSampleAdditions(withProcessLists(withHolidayShifts(withShiftSettings(parsed))))
     }
-    const previous = window.localStorage.getItem(PREVIOUS_KEY)
+    const previous = PREVIOUS_KEY ? window.localStorage.getItem(PREVIOUS_KEY) : null
     if (previous) {
       const parsed = JSON.parse(previous) as Omit<SavedState, 'version'> & { version: number }
       if (parsed.version === 2) return withSampleAdditions(withProcessLists(withHolidayShifts(withShiftSettings(fromVersion2(parsed)))))
@@ -76,7 +78,7 @@ function load(): SavedState {
 // times the quantities to fill them, so a sample saved before is made afresh: its orders and
 // the decisions on them no longer fit. The planner's other settings stay, the day shift's
 // hours among them.
-export function withShiftSettings(saved: SavedState, today = localToday()): SavedState {
+export function withShiftSettings(saved: SavedState, today = appToday()): SavedState {
   const settings: Partial<Settings> = saved.settings
   if (settings.shifts !== undefined) return saved
   if (saved.dataSource !== 'sample') {
@@ -108,7 +110,7 @@ function withProcessLists(saved: SavedState): SavedState {
   if (equipment.every((item) => Array.isArray(item.processes))) return saved
   const lists = equipment.map(({ process, ...item }) => ({ ...item, processes: item.processes ?? [process ?? ''] }))
   if (saved.dataSource !== 'sample') return { ...saved, data: { ...saved.data, equipment: lists } }
-  const sample = createSampleData(localToday())
+  const sample = createSampleData(appToday())
   const fromSample = new Map(sample.equipment.map((item) => [item.id, item]))
   const crewProcesses = new Map(sample.crews.map((crew) => [crew.name, crew.processes]))
   return {
@@ -134,7 +136,7 @@ function withProcessLists(saved: SavedState): SavedState {
 // keeps none.
 export function withSampleAdditions(saved: SavedState): SavedState {
   if (saved.dataSource !== 'sample') return saved
-  const sample = createSampleData(localToday())
+  const sample = createSampleData(appToday())
   let data = saved.data
   if (!data.equipment.some((item) => 'lastPart' in item)) {
     const lastParts = new Map(sample.equipment.map((item) => [item.id, item.lastPart]))
@@ -168,18 +170,18 @@ export function withSampleAdditions(saved: SavedState): SavedState {
     ...data,
     actuals: sampleActuals(data),
     customerOrders: served ? customerOrders.filter((entry) => served.has(entry.orderId)) : customerOrders,
-    channelStocks: sampleChannelStocks(localToday()),
+    channelStocks: sampleChannelStocks(appToday()),
     // Deals are edited in the app, so they are kept once saved; a sample saved before deals
     // were kept gets the sample's.
-    ...(data.deals ? {} : sampleDeals(localToday())),
+    ...(data.deals ? {} : sampleDeals(appToday())),
     // Not edited in the app, so made afresh up to last month.
-    orderHistory: sampleOrderHistory(data.parts, localToday()),
+    orderHistory: sampleOrderHistory(data.parts, appToday()),
   }
   return { ...saved, data }
 }
 
 function fromVersion2(saved: Omit<SavedState, 'version'>): SavedState {
-  const sample = createSampleData(localToday())
+  const sample = createSampleData(appToday())
   const fromSample = saved.dataSource === 'sample'
   return {
     ...saved,
@@ -202,7 +204,7 @@ function save(state: SavedState): void {
 
 export function useAppState() {
   const [saved, setSaved] = useState<SavedState>(load)
-  const today = localToday()
+  const today = appToday()
 
   useEffect(() => save(saved), [saved])
 
@@ -230,7 +232,7 @@ export function useAppState() {
       }
       setSaved((current) => ({
         ...current,
-        decisions: [...current.decisions, { ...decision, changes, id: crypto.randomUUID(), at: new Date().toISOString() }],
+        decisions: [...current.decisions, { ...decision, changes, id: crypto.randomUUID(), at: currentTime().toISOString() }],
       }))
       return null
     },

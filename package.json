@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "npm run build && vite preview",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "VITE_SAKIYOMI_PREPARED_ANSWERS=1 npm run build && wrangler deploy",
     "cf-typegen": "wrangler types",
     "test": "vitest run",
     "models": "node scripts/models/build.mjs"

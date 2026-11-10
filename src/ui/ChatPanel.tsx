@@ -5,9 +5,10 @@ import { IconCalculator, IconListSearch, IconPlus, IconRoute, IconSend, IconStac
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 
 import { ChatError, converse } from '../assistant/chatClient'
+import { PREPARED_ANSWERS, PREPARED_DAY, preparedRequest } from '../assistant/preparedAnswers'
+import { GENERAL_PROMPTS, samplePrompts } from '../assistant/samplePrompts'
 import { TOOL_NAMES } from '../assistant/toolSchemas'
 import { changesToApply, type ProposedOption, type ReportedEvent } from '../assistant/tools'
-import { addDays, weekday } from '../engine/dates'
 import type { PlanState } from '../engine/plan'
 import { describeChange, parseChange } from '../engine/scenario'
 import type { PlantData } from '../engine/types'
@@ -29,23 +30,6 @@ type Props = {
   onAdopt: (decision: Omit<Decision, 'id' | 'at'>) => string | null
 }
 
-const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土']
-
-// The machine stops on the next working day, so the example moves the plan whichever day
-// the app is opened: tomorrow, or on Friday and Saturday the coming Monday.
-function samplePrompts({ today, settings }: PlanState): string[] {
-  const tomorrow = addDays(today, 1)
-  let stopOn = tomorrow
-  for (let step = 0; step < 7 && !settings.workWeekdays.includes(weekday(stopOn)); step += 1) stopOn = addDays(stopOn, 1)
-  const when = stopOn === tomorrow ? '明日' : `${WEEKDAY_NAMES[weekday(stopOn)]}曜に`
-  return [
-    '注番1045の材料が2日遅れると連絡がありました',
-    '旋回フレームの部品の商談が取れたら、納期に間に合いますか？',
-    `マシニング1が${when}1日止まります`,
-    '今いちばん危ない注番はどれ？',
-  ]
-}
-const GENERAL_PROMPTS = ['今いちばん危ない注番はどれ？', '来週いちばん混む設備はどれ？']
 
 // Marks text the app adds to the planner's next message after a button press.
 const SCREEN_NOTE = '［画面での操作］'
@@ -97,10 +81,15 @@ export function ChatPanel({ planState, sampleData, decisions, previewing, onPrev
     setError(null)
     setBusy(true)
     try {
-      await converse(next, () => stateRef.current, {
-        onHistory: setHistory,
-        onOptions: (id, proposed) => setOptions((current) => ({ ...current, [id]: proposed })),
-      })
+      await converse(
+        next,
+        () => stateRef.current,
+        {
+          onHistory: setHistory,
+          onOptions: (id, proposed) => setOptions((current) => ({ ...current, [id]: proposed })),
+        },
+        PREPARED_ANSWERS ? preparedRequest() : undefined,
+      )
       setSpeaking(true)
     } catch (caught) {
       setError(caught instanceof ChatError ? caught.message : '相談の途中でエラーが起きました。もう一度送ってください')
@@ -239,29 +228,35 @@ export function ChatPanel({ planState, sampleData, decisions, previewing, onPrev
         )}
       </ScrollArea>
 
-      <form
-        className="chat-input"
-        onSubmit={(event) => {
-          event.preventDefault()
-          void send(input)
-        }}
-      >
-        <Textarea
-          value={input}
-          onChange={(event) => setInput(event.currentTarget.value)}
-          onKeyDown={onKeyDown}
-          placeholder="例：注番1045の材料が2日遅れる"
-          autosize
-          minRows={1}
-          maxRows={5}
-          disabled={busy}
-          aria-label="Claude への相談"
-          style={{ flex: 1 }}
-        />
-        <ActionIcon type="submit" size="lg" disabled={busy || !input.trim()} aria-label="送信">
-          <IconSend size={18} />
-        </ActionIcon>
-      </form>
+      {PREPARED_ANSWERS ? (
+        <Text className="chat-input" size="xs" c="dimmed">
+          見本：Claude が {Number(PREPARED_DAY.slice(5, 7))}/{Number(PREPARED_DAY.slice(8, 10))} に答えた内容です
+        </Text>
+      ) : (
+        <form
+          className="chat-input"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void send(input)
+          }}
+        >
+          <Textarea
+            value={input}
+            onChange={(event) => setInput(event.currentTarget.value)}
+            onKeyDown={onKeyDown}
+            placeholder="例：注番1045の材料が2日遅れる"
+            autosize
+            minRows={1}
+            maxRows={5}
+            disabled={busy}
+            aria-label="Claude への相談"
+            style={{ flex: 1 }}
+          />
+          <ActionIcon type="submit" size="lg" disabled={busy || !input.trim()} aria-label="送信">
+            <IconSend size={18} />
+          </ActionIcon>
+        </form>
+      )}
     </div>
   )
 }

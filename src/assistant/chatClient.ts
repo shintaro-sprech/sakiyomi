@@ -17,6 +17,9 @@ export type ChatEvents = {
   onOptions: (toolUseId: string, options: ProposedOption[]) => void
 }
 
+// Asks Claude for its next reply to the history.
+export type RequestReply = (messages: MessageParam[]) => Promise<Message>
+
 async function requestReply(messages: MessageParam[]): Promise<Message> {
   const response = await fetch('/api/chat', {
     method: 'POST',
@@ -36,10 +39,11 @@ export async function converse(
   history: MessageParam[],
   getState: () => PlanState,
   events: ChatEvents,
+  request: RequestReply = requestReply,
 ): Promise<{ history: MessageParam[]; stopReason: string | null }> {
   let current = history
   for (let round = 0; round < MAX_ROUNDS; round += 1) {
-    const reply = await requestReply(current)
+    const reply = await request(current)
     current = [...current, { role: 'assistant', content: reply.content }]
     events.onHistory(current)
 
